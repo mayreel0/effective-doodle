@@ -91,6 +91,57 @@ test -f "$failed_build_root/npx-called" ||
 test "$(cat "$failed_build_root/public/index.html")" = 'existing public output' ||
   fail 'failed Quartz build changed existing public output'
 
+promotion_root="$tmp_root/promotion-failure"
+create_fixture "$promotion_root"
+real_mv="$(command -v mv)"
+cat > "$promotion_root/bin/rsync" <<'SCRIPT'
+#!/usr/bin/env bash
+exit 0
+SCRIPT
+cat > "$promotion_root/bin/npm" <<'SCRIPT'
+#!/usr/bin/env bash
+exit 0
+SCRIPT
+cat > "$promotion_root/bin/npx" <<'SCRIPT'
+#!/usr/bin/env bash
+printf '%s\n' 'new public output' > "$FIXTURE_ROOT/public.next/index.html"
+SCRIPT
+cat > "$promotion_root/bin/mv" <<'SCRIPT'
+#!/usr/bin/env bash
+case "$1:$2" in
+  */public.next:*/public)
+    echo 'forced final promotion failure' >&2
+    exit 73
+    ;;
+esac
+exec "$REAL_MV" "$@"
+SCRIPT
+chmod +x \
+  "$promotion_root/bin/rsync" \
+  "$promotion_root/bin/npm" \
+  "$promotion_root/bin/npx" \
+  "$promotion_root/bin/mv"
+
+write_env \
+  "$promotion_root/wiki.env" \
+  "$promotion_root/vault" \
+  "$promotion_root/quartz" \
+  "$promotion_root/public" \
+  "$promotion_root/public.next"
+
+if FIXTURE_ROOT="$promotion_root" REAL_MV="$real_mv" PATH="$promotion_root/bin:$PATH" \
+  "$repo_dir/scripts/wiki-build.sh" "$promotion_root/wiki.env" \
+  > "$promotion_root/output.log" 2>&1; then
+  fail 'failed final promotion unexpectedly succeeded'
+fi
+
+test -f "$promotion_root/public/index.html" ||
+  fail 'failed final promotion did not restore the previous public site'
+test "$(cat "$promotion_root/public/index.html")" = 'existing public output' ||
+  fail 'failed final promotion restored the wrong public content'
+grep -q 'Restored previous public site after promotion failure.' "$promotion_root/output.log" ||
+  fail 'failed final promotion did not report successful rollback'
+
 same_path_root="$tmp_root/same-path"
 create_fixture "$same_path_root"
 run_rejection_case \

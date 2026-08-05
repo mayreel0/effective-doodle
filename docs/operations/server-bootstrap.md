@@ -29,13 +29,19 @@
 
 5. Configure Syncthing to sync the main PC Obsidian vault to `/srv/wiki/vault`.
 
-6. Initialize Git inside `/srv/wiki/vault`:
+6. Initialize Git on the configured `main` branch inside `/srv/wiki/vault`, then add the off-server backup remote:
 
    ```bash
-   sudo -u wiki git -C /srv/wiki/vault init
+   sudo -u wiki git -C /srv/wiki/vault init --initial-branch=main
    sudo -u wiki git -C /srv/wiki/vault config user.email wiki@example.local
    sudo -u wiki git -C /srv/wiki/vault config user.name "Wiki Snapshot"
+   backup_url='ssh://git@example.com/path/to/wiki-vault.git'
+   sudo -u wiki git -C /srv/wiki/vault remote add origin "$backup_url"
+   sudo -u wiki git -C /srv/wiki/vault branch --show-current
+   sudo -u wiki git -C /srv/wiki/vault remote get-url origin
    ```
+
+   The verification commands must print `main` and the configured backup URL. Keep those names aligned with `WIKI_GIT_BRANCH` and `WIKI_GIT_REMOTE` in `/etc/wiki/wiki.env`; the snapshot script refuses to run on a different branch. If no remote is configured, snapshots are committed locally and the push is explicitly skipped, so they are not yet off-server backups.
 
 7. Install Quartz in `/srv/wiki/quartz` using the official Quartz setup flow.
 

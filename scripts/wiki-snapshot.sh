@@ -15,6 +15,17 @@ fi
 
 cd "$WIKI_VAULT_DIR"
 
+current_branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+if [ -z "$current_branch" ]; then
+  echo "Vault is not on a branch; expected WIKI_GIT_BRANCH '$WIKI_GIT_BRANCH'. Refusing snapshot push." >&2
+  exit 1
+fi
+
+if [ "$current_branch" != "$WIKI_GIT_BRANCH" ]; then
+  echo "Vault branch mismatch: current branch is '$current_branch', expected WIKI_GIT_BRANCH '$WIKI_GIT_BRANCH'. Refusing snapshot push." >&2
+  exit 1
+fi
+
 if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
   git add .
   if git diff --cached --quiet; then

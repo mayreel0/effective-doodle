@@ -13,10 +13,17 @@ if [ ! -d "$WIKI_VAULT_DIR" ]; then
   exit 1
 fi
 
+if ! conflict_output="$(find "$WIKI_VAULT_DIR" -type f -name '*.sync-conflict-*.md' | sort)"; then
+  echo "Failed to scan vault for Syncthing Markdown conflicts." >&2
+  exit 1
+fi
+
 conflicts=()
-while IFS= read -r conflict; do
-  conflicts+=("$conflict")
-done < <(find "$WIKI_VAULT_DIR" -type f -name '*.sync-conflict-*.md' | sort)
+if [ -n "$conflict_output" ]; then
+  while IFS= read -r conflict; do
+    conflicts+=("$conflict")
+  done <<< "$conflict_output"
+fi
 
 if [ "${#conflicts[@]}" -eq 0 ]; then
   echo "No Syncthing Markdown conflicts found."

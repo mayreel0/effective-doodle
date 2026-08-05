@@ -53,6 +53,24 @@ paths_overlap() {
   is_same_or_descendant "$1" "$2" || is_same_or_descendant "$2" "$1"
 }
 
+device_id() {
+  local path="$1"
+  local id
+
+  if id="$(stat -f '%d' "$path" 2>/dev/null)"; then
+    printf '%s\n' "$id"
+    return
+  fi
+
+  if id="$(stat -c '%d' "$path" 2>/dev/null)"; then
+    printf '%s\n' "$id"
+    return
+  fi
+
+  echo "Unable to determine filesystem device for: $path" >&2
+  return 1
+}
+
 if [ ! -d "$WIKI_VAULT_DIR" ]; then
   echo "Vault directory does not exist: $WIKI_VAULT_DIR" >&2
   exit 1
@@ -120,11 +138,32 @@ if [ ! -f "$WIKI_BUILD_TMP_DIR/index.html" ]; then
   exit 1
 fi
 
+build_device="$(device_id "$WIKI_BUILD_TMP_DIR")"
+public_device="$(device_id "$(dirname "$WIKI_PUBLIC_DIR")")"
+if [ "$build_device" != "$public_device" ]; then
+  echo "Build temporary directory and public directory must be on the same filesystem for safe promotion." >&2
+  exit 1
+fi
+
 rm -rf "$previous_dir"
 
 if [ -d "$WIKI_PUBLIC_DIR" ]; then
   mv "$WIKI_PUBLIC_DIR" "$previous_dir"
 fi
 
-mv "$WIKI_BUILD_TMP_DIR" "$WIKI_PUBLIC_DIR"
-echo "Published Quartz site to $WIKI_PUBLIC_DIR"
+if mv "$WIKI_BUILD_TMP_DIR" "$WIKI_PUBLIC_DIR"; then
+  echo "Published Quartz site to $WIKI_PUBLIC_DIR"
+else
+  promotion_status=$?
+  echo "Failed to promote Quartz build to $WIKI_PUBLIC_DIR." >&2
+
+  if [ -d "$previous_dir" ]; then
+    if mv "$previous_dir" "$WIKI_PUBLIC_DIR"; then
+      echo "Restored previous public site after promotion failure." >&2
+    else
+      echo "Failed to restore previous public site from $previous_dir." >&2
+    fi
+  fi
+
+  exit "$promotion_status"
+fi
