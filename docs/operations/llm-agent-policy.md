@@ -21,7 +21,7 @@ When a requested change may rewrite or substantially alter a human-authored note
 ## Direct Human Note Edits
 
 - Routine, narrow edits outside `_llm/` may be applied directly only when the user explicitly asks for that exact edit.
-- Substantial rewrites, deletions, restructures, or ambiguous risky changes outside `_llm/` must go through `_llm/proposed-edits/` first, unless the user explicitly instructs the agent to apply that risky edit directly despite this policy.
+- Substantial rewrites, deletions, restructures, or ambiguous risky changes outside `_llm/` must always go through `_llm/proposed-edits/` first.
 
 ## Required After Write
 
