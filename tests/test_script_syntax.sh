@@ -4,6 +4,7 @@ set -euo pipefail
 bash -n scripts/lib/wiki-env.sh
 bash -n scripts/wiki-snapshot.sh
 bash -n scripts/wiki-conflicts.sh
+bash -n scripts/wiki-build.sh
 
 tmp_env="$(mktemp)"
 cat > "$tmp_env" <<'ENV'
