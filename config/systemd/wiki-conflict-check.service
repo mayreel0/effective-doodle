@@ -1,0 +1,8 @@
+[Unit]
+Description=Check Syncthing Markdown wiki conflicts
+
+[Service]
+Type=oneshot
+User=wiki
+Group=wiki
+ExecStart=/srv/wiki/ops/scripts/wiki-conflicts.sh /etc/wiki/wiki.env

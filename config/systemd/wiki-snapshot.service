@@ -1,0 +1,9 @@
+[Unit]
+Description=Commit and push Markdown wiki vault snapshot
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=wiki
+Group=wiki
+ExecStart=/srv/wiki/ops/scripts/wiki-snapshot.sh /etc/wiki/wiki.env

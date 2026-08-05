@@ -1,0 +1,4 @@
+wiki.local {
+  root * /srv/wiki/public
+  file_server
+}
