@@ -3,7 +3,7 @@
 - [ ] A note created on the main PC appears under `/srv/wiki/vault`.
 - [ ] `.obsidian/workspace*` files do not sync to the server vault.
 - [ ] `git -C /srv/wiki/vault branch --show-current` matches `WIKI_GIT_BRANCH` (`main` by default).
-- [ ] `git -C /srv/wiki/vault remote get-url origin` prints the off-server backup URL configured as `WIKI_GIT_REMOTE`.
+- [ ] `git -C /srv/wiki/vault remote get-url origin` prints the off-server backup URL, and `origin` matches `WIKI_GIT_REMOTE`.
 - [ ] `scripts/wiki-conflicts.sh /etc/wiki/wiki.env` reports no conflicts.
 - [ ] `scripts/wiki-snapshot.sh /etc/wiki/wiki.env` creates a Git commit when a note changes.
 - [ ] `scripts/wiki-build.sh /etc/wiki/wiki.env` creates `/srv/wiki/public/index.html`.
