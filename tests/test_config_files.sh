@@ -25,3 +25,11 @@ grep -q "ExecStart=/srv/wiki/ops/scripts/wiki-conflicts.sh /etc/wiki/wiki.env" c
 grep -Fq "OnCalendar=*:0/10" config/systemd/wiki-build.timer
 grep -Fq "OnCalendar=*:0/15" config/systemd/wiki-snapshot.timer
 grep -Fq "OnCalendar=hourly" config/systemd/wiki-conflict-check.timer
+
+grep -Fq "127.0.0.1:8080" config/caddy/Caddyfile.example
+grep -Fq "root * /srv/wiki/public" config/caddy/Caddyfile.example
+! grep -Fq "/srv/wiki/vault" config/caddy/Caddyfile.example
+
+grep -Fq "listen 127.0.0.1:8080;" config/nginx/wiki.conf.example
+grep -Fq "root /srv/wiki/public;" config/nginx/wiki.conf.example
+! grep -Fq "/srv/wiki/vault" config/nginx/wiki.conf.example
