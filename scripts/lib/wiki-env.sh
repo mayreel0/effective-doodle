@@ -17,6 +17,9 @@ load_wiki_env() {
   : "${WIKI_QUARTZ_DIR:?WIKI_QUARTZ_DIR is required}"
   : "${WIKI_PUBLIC_DIR:?WIKI_PUBLIC_DIR is required}"
   : "${WIKI_BUILD_TMP_DIR:?WIKI_BUILD_TMP_DIR is required}"
+  : "${WIKI_PRIVATE_DIR:=$(dirname "$WIKI_PUBLIC_DIR")/private}"
+  : "${WIKI_PRIVATE_BUILD_TMP_DIR:=${WIKI_PRIVATE_DIR}.next}"
+  : "${WIKI_BUILD_STATE_DIR:=$(dirname "$WIKI_PUBLIC_DIR")/.wiki-build-state}"
   : "${WIKI_GIT_REMOTE:=origin}"
   : "${WIKI_GIT_BRANCH:=main}"
 
@@ -24,6 +27,9 @@ load_wiki_env() {
   export WIKI_QUARTZ_DIR
   export WIKI_PUBLIC_DIR
   export WIKI_BUILD_TMP_DIR
+  export WIKI_PRIVATE_DIR
+  export WIKI_PRIVATE_BUILD_TMP_DIR
+  export WIKI_BUILD_STATE_DIR
   export WIKI_GIT_REMOTE
   export WIKI_GIT_BRANCH
 }

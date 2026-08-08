@@ -1,4 +1,12 @@
-127.0.0.1:8080 {
+:9009 {
   root * /srv/wiki/public
+  file_server
+}
+
+:9010 {
+  basicauth {
+    wiki $2a$14$replace_with_caddy_hash
+  }
+  root * /srv/wiki/private
   file_server
 }
