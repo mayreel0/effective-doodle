@@ -12,4 +12,31 @@ The Markdown vault is the source of truth. The Linux server syncs the vault, sna
 - Use `scripts/wiki-snapshot.sh` for Git durability snapshots.
 - Use `scripts/wiki-build.sh` for Quartz publishing.
 - Use `scripts/wiki-conflicts.sh` to detect Syncthing conflict files.
+- Use `scripts/wiki-init-project.sh` to initialize Project Wiki Mode for another repository.
+- Use `docs/operations/project-wiki-mode.md` to apply this system to other projects.
 - Use `docs/operations/llm-agent-policy.md` before granting an LLM agent write access.
+
+## Project Wiki Mode
+
+Install the project initializer once:
+
+```bash
+scripts/install-wiki-tools.sh
+```
+
+Then run it from any project repository:
+
+```bash
+wiki-init-project --agents-only "Project Name"
+```
+
+This creates `AGENTS.md` in the current repository so LLM agents know where project wiki documents belong.
+
+Set the real vault location when the agent needs to create or update wiki documents:
+
+```bash
+export OBSIDIAN_VAULT_DIR="/path/to/Obsidian Vault"
+wiki-init-project "Project Name"
+```
+
+The generated `AGENTS.md` intentionally keeps `${OBSIDIAN_VAULT_DIR}` references instead of resolved personal paths.
