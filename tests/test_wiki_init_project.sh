@@ -113,15 +113,37 @@ test ! -f "$bad_project_root/AGENTS.md" ||
 test ! -e "$bad_vault_root/10-Projects/Bad Project" ||
   fail 'repo-internal vault rejection still created wiki docs'
 
-if "$repo_dir/scripts/wiki-init-project.sh" \
-  --project-root "$project_root" \
-  --vault-root "$vault_root" \
-  "Shopping App" > "$tmp_root/second.log" 2>&1; then
-  fail 'second run without --force unexpectedly overwrote AGENTS.md'
-fi
+existing_agents_project_root="$tmp_root/existing-agents-project-repo"
+existing_agents_vault_root="$tmp_root/Existing Agents Obsidian Vault"
+mkdir -p "$existing_agents_project_root" "$existing_agents_vault_root"
+cat > "$existing_agents_project_root/AGENTS.md" <<'EXISTING'
+# Existing Agent Rules
 
-grep -Fq 'AGENTS.md already exists' "$tmp_root/second.log" ||
-  fail 'second run did not explain the existing AGENTS.md failure'
+Keep this project-specific rule.
+EXISTING
+
+"$repo_dir/scripts/wiki-init-project.sh" \
+  --agents-only \
+  --project-root "$existing_agents_project_root" \
+  --vault-root "$existing_agents_vault_root" \
+  "Existing Agents App"
+
+grep -Fq 'Keep this project-specific rule.' "$existing_agents_project_root/AGENTS.md" ||
+  fail 'existing AGENTS.md content was not preserved'
+grep -Fq '## Project Wiki Mode' "$existing_agents_project_root/AGENTS.md" ||
+  fail 'Project Wiki Mode section was not appended to an existing AGENTS.md'
+grep -Fq '${OBSIDIAN_VAULT_DIR}/10-Projects/Existing Agents App' "$existing_agents_project_root/AGENTS.md" ||
+  fail 'existing AGENTS.md did not receive the correct wiki root'
+
+"$repo_dir/scripts/wiki-init-project.sh" \
+  --agents-only \
+  --project-root "$existing_agents_project_root" \
+  --vault-root "$existing_agents_vault_root" \
+  "Existing Agents App"
+
+project_wiki_mode_count="$(grep -Fc '## Project Wiki Mode' "$existing_agents_project_root/AGENTS.md")"
+test "$project_wiki_mode_count" -eq 1 ||
+  fail 're-running wiki init duplicated the Project Wiki Mode section'
 
 public_project_root="$tmp_root/public-project-repo"
 public_vault_root="$tmp_root/Public Obsidian Vault"

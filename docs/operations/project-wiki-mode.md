@@ -34,6 +34,8 @@ AGENTS.md
 
 It does not create wiki documents, and it does not need the actual Obsidian Vault path. The generated `AGENTS.md` intentionally keeps `${OBSIDIAN_VAULT_DIR}` references instead of writing personal absolute paths.
 
+If `AGENTS.md` already exists, the command preserves the existing file and adds a managed Project Wiki Mode block. Re-running the command updates that managed block instead of duplicating it or replacing unrelated project rules.
+
 ## Create Project Wiki Documents
 
 When starter wiki documents are needed, provide the real Vault root:
