@@ -1,0 +1,9 @@
+[Unit]
+Description=Build Quartz Markdown wiki
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=wiki
+Group=wiki
+ExecStart=/srv/wiki/ops/scripts/wiki-build.sh /etc/wiki/wiki.env

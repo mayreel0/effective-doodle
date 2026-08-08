@@ -1,0 +1,11 @@
+server {
+  listen 127.0.0.1:8080;
+  server_name localhost wiki.local;
+
+  root /srv/wiki/public;
+  index index.html;
+
+  location / {
+    try_files $uri $uri/ $uri.html =404;
+  }
+}
