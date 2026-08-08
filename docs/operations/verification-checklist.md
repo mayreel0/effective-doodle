@@ -12,3 +12,6 @@
 - [ ] Quartz search can find a known note title.
 - [ ] The LLM agent can create a note under `_llm/drafts/`.
 - [ ] The LLM agent does not modify human-authored notes without explicit instruction.
+- [ ] `scripts/install-wiki-tools.sh` installs `wiki-init-project` on the local machine.
+- [ ] `wiki-init-project --agents-only "Project Name"` creates `AGENTS.md` from another project root.
+- [ ] Generated `AGENTS.md` uses `${OBSIDIAN_VAULT_DIR}` and does not contain personal absolute paths.
