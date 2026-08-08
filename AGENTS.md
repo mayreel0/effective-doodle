@@ -1,3 +1,4 @@
+<!-- project-wiki-mode:start -->
 # Agent Instructions
 
 ## Project Wiki Mode
@@ -73,3 +74,4 @@ Use placeholders such as `example.com`, `192.0.2.10`, `user`, `/path/to/project`
 If unsure where to store wiki documents, ask before writing.
 
 Do not default to writing wiki documents into the current repository.
+<!-- project-wiki-mode:end -->

@@ -191,14 +191,12 @@ logs_dir="$wiki_dir/90 Logs"
 agents_wiki_dir="\${OBSIDIAN_VAULT_DIR}/10-Projects/$project_name"
 agents_shared_rules="\${OBSIDIAN_VAULT_DIR}/10-Projects/LLM Markdown Wiki System/08 Project Wiki Mode.md"
 agents_file="$project_root/AGENTS.md"
+agents_block_begin="<!-- project-wiki-mode:start -->"
+agents_block_end="<!-- project-wiki-mode:end -->"
 
-if [ -f "$agents_file" ] && [ "$force" -ne 1 ]; then
-  echo "AGENTS.md already exists: $agents_file" >&2
-  echo "Re-run with --force to replace it." >&2
-  exit 1
-fi
-
-cat > "$agents_file" <<AGENTS
+write_agents_block() {
+  cat <<AGENTS
+$agents_block_begin
 # Agent Instructions
 
 ## Project Wiki Mode
@@ -274,7 +272,51 @@ Use placeholders such as \`example.com\`, \`192.0.2.10\`, \`user\`, \`/path/to/p
 If unsure where to store wiki documents, ask before writing.
 
 Do not default to writing wiki documents into the current repository.
+$agents_block_end
 AGENTS
+}
+
+if [ -f "$agents_file" ]; then
+  tmp_block="$(mktemp)"
+  tmp_agents="$(mktemp)"
+  write_agents_block > "$tmp_block"
+  awk \
+    -v begin="$agents_block_begin" \
+    -v end="$agents_block_end" \
+    -v block_file="$tmp_block" '
+      function print_block() {
+        while ((getline line < block_file) > 0) {
+          print line
+        }
+        close(block_file)
+      }
+      $0 == begin {
+        if (!printed) {
+          print_block()
+          printed = 1
+        }
+        skipping = 1
+        next
+      }
+      $0 == end {
+        skipping = 0
+        next
+      }
+      !skipping {
+        print
+      }
+      END {
+        if (!printed) {
+          print ""
+          print_block()
+        }
+      }
+    ' "$agents_file" > "$tmp_agents"
+  mv "$tmp_agents" "$agents_file"
+  rm -f "$tmp_block"
+else
+  write_agents_block > "$agents_file"
+fi
 
 if [ "$agents_only" -ne 1 ]; then
   mkdir -p "$logs_dir"

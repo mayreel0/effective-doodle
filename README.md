@@ -31,6 +31,7 @@ wiki-init-project --agents-only "Project Name"
 ```
 
 This creates `AGENTS.md` in the current repository so LLM agents know where project wiki documents belong.
+If `AGENTS.md` already exists, the command preserves the existing content and adds or updates only the Project Wiki Mode block.
 
 Set the real vault location when the agent needs to create or update wiki documents:
 
