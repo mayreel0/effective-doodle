@@ -1,4 +1,5 @@
-import { mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 
@@ -69,10 +70,74 @@ export class KnowledgeStore {
     return versionedValue;
   }
 
-  removeProject(projectId) {
-    rmSync(this.projectDirectory(projectId), { recursive: true, force: true });
+  writeNewProjectJson(projectId, filename, value) {
+    assertJsonFilename(filename);
+    const projectDirectory = this.projectDirectory(projectId);
+    mkdirSync(dirname(projectDirectory), { recursive: true });
+    try {
+      mkdirSync(projectDirectory);
+    } catch (error) {
+      if (error.code === 'EEXIST') {
+        throw new Error(`Derived project storage already exists for '${projectId}'.`, { cause: error });
+      }
+      throw error;
+    }
+
+    try {
+      return this.writeProjectJson(projectId, filename, value);
+    } catch (error) {
+      this.rollbackNewProjectJson(projectId, filename);
+      throw error;
+    }
   }
 
+  rollbackNewProjectJson(projectId, filename) {
+    assertJsonFilename(filename);
+    const projectDirectory = this.projectDirectory(projectId);
+    rmSync(join(projectDirectory, filename), { force: true });
+    try {
+      rmdirSync(projectDirectory);
+    } catch (error) {
+      if (error.code !== 'ENOENT' && error.code !== 'ENOTEMPTY') throw error;
+    }
+  }
+
+  stageProjectRemoval(projectId) {
+    const projectDirectory = this.projectDirectory(projectId);
+    const stagingDirectory = join(this.home, 'staged-removals');
+    const stagedPath = join(stagingDirectory, `${projectId}.${randomUUID()}`);
+    mkdirSync(stagingDirectory, { recursive: true });
+    try {
+      renameSync(projectDirectory, stagedPath);
+      return stagedPath;
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        removeEmptyDirectory(stagingDirectory);
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  restoreStagedProject(projectId, stagedPath) {
+    if (stagedPath === null) return;
+    renameSync(stagedPath, this.projectDirectory(projectId));
+    removeEmptyDirectory(dirname(stagedPath));
+  }
+
+  discardStagedProject(stagedPath) {
+    if (stagedPath === null) return;
+    rmSync(stagedPath, { recursive: true, force: true });
+    removeEmptyDirectory(dirname(stagedPath));
+  }
+}
+
+function removeEmptyDirectory(path) {
+  try {
+    rmdirSync(path);
+  } catch (error) {
+    if (error.code !== 'ENOENT' && error.code !== 'ENOTEMPTY') throw error;
+  }
 }
 
 export function assertProjectId(projectId) {

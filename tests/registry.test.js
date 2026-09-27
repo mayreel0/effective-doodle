@@ -1,5 +1,14 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import test from 'node:test';
@@ -165,23 +174,85 @@ test('unregister rejects an unknown project without changing the registry', (t) 
   assert.equal(readFileSync(join(home, 'registry.json'), 'utf8'), before);
 });
 
-// 한글: derived data 제거에 실패하면 registry를 복원한다.
-test('unregister restores the registry when derived-data removal fails', (t) => {
-  const root = temporaryRoot(t, 'doodle-unregister-');
+// 한글: registry 갱신에 실패하면 staging한 derived data를 온전히 복원한다.
+test('unregister restores staged derived data when registry persistence fails', (t) => {
+  const root = temporaryRoot(t, 'doodle-unregister-registry-');
   const repo = createGitRepository(root, 'source');
   const home = join(root, 'home');
-  class FailingRemovalStore extends KnowledgeStore {
-    removeProject() {
-      throw new Error('forced removal failure');
+  class FailingRegistryStore extends KnowledgeStore {
+    failRegistryWrites = false;
+
+    writeRegistry(registry) {
+      if (this.failRegistryWrites) throw new Error('forced registry failure');
+      return super.writeRegistry(registry);
     }
   }
-  const store = new FailingRemovalStore({ home });
+  const store = new FailingRegistryStore({ home });
   const registry = new ProjectRegistry({ store });
   registry.register(repo, { id: 'sample' });
+  store.writeProjectJson('sample', 'current.json', { projectId: 'sample' });
+  store.failRegistryWrites = true;
 
-  assert.throws(() => registry.unregister('sample'), /forced removal failure/);
+  assert.throws(() => registry.unregister('sample'), /forced registry failure/);
   assert.deepEqual(registry.list(), [{ id: 'sample', path: realpathSync(repo) }]);
-  assert.equal(existsSync(join(home, 'projects', 'sample', 'project.json')), true);
+  assert.deepEqual(readdirSync(join(home, 'projects', 'sample')).sort(), ['current.json', 'project.json']);
+});
+
+// 한글: 부분 cleanup 실패 시 등록 해제된 project storage를 active 상태로 되돌리지 않는다.
+test('unregister does not restore active project storage after partial cleanup failure', (t) => {
+  const root = temporaryRoot(t, 'doodle-unregister-cleanup-');
+  const repo = createGitRepository(root, 'source');
+  const home = join(root, 'home');
+  class PartiallyFailingCleanupStore extends KnowledgeStore {
+    discardStagedProject(stagedPath) {
+      rmSync(join(stagedPath, 'current.json'));
+      throw new Error('forced partial cleanup failure');
+    }
+  }
+  const store = new PartiallyFailingCleanupStore({ home });
+  const registry = new ProjectRegistry({ store });
+  registry.register(repo, { id: 'sample' });
+  store.writeProjectJson('sample', 'current.json', { projectId: 'sample' });
+
+  assert.throws(() => registry.unregister('sample'), /unregistered.*cleanup failed/i);
+  assert.deepEqual(registry.list(), []);
+  assert.equal(existsSync(join(home, 'projects', 'sample')), false);
+  assert.equal(readdirSync(join(home, 'staged-removals')).length, 1);
+});
+
+// 한글: 등록 시 기존 orphan derived data를 덮어쓰거나 삭제하지 않는다.
+test('register preserves pre-existing orphan derived data', (t) => {
+  const root = temporaryRoot(t, 'doodle-register-orphan-');
+  const repo = createGitRepository(root, 'source');
+  const home = join(root, 'home');
+  const orphanDirectory = join(home, 'projects', 'sample');
+  mkdirSync(orphanDirectory, { recursive: true });
+  writeFileSync(join(orphanDirectory, 'keep.json'), '{"keep":true}\n');
+  const registry = new ProjectRegistry({ store: new KnowledgeStore({ home }) });
+
+  assert.throws(() => registry.register(repo, { id: 'sample' }), /derived project storage already exists/i);
+  assert.equal(readFileSync(join(orphanDirectory, 'keep.json'), 'utf8'), '{"keep":true}\n');
+  assert.equal(existsSync(join(orphanDirectory, 'project.json')), false);
+  assert.deepEqual(registry.list(), []);
+});
+
+// 한글: registry 저장 실패 시 이번 등록 시도가 만든 metadata만 되돌린다.
+test('register rollback removes only metadata created by the current attempt', (t) => {
+  const root = temporaryRoot(t, 'doodle-register-rollback-');
+  const repo = createGitRepository(root, 'source');
+  const home = join(root, 'home');
+  class FailingRegistryStore extends KnowledgeStore {
+    writeRegistry() {
+      const projectDirectory = join(this.home, 'projects', 'sample');
+      writeFileSync(join(projectDirectory, 'keep.json'), '{"keep":true}\n');
+      throw new Error('forced registry failure');
+    }
+  }
+  const registry = new ProjectRegistry({ store: new FailingRegistryStore({ home }) });
+
+  assert.throws(() => registry.register(repo, { id: 'sample' }), /forced registry failure/);
+  assert.equal(readFileSync(join(home, 'projects', 'sample', 'keep.json'), 'utf8'), '{"keep":true}\n');
+  assert.equal(existsSync(join(home, 'projects', 'sample', 'project.json')), false);
 });
 
 // 한글: 저장에 성공하면 임시 JSON 파일을 남기지 않는다.

@@ -26,7 +26,7 @@ export class ProjectRegistry {
       throw new Error(`Project path is already registered: ${canonicalPath}`);
     }
 
-    const metadata = this.store.writeProjectJson(projectId, 'project.json', {
+    const metadata = this.store.writeNewProjectJson(projectId, 'project.json', {
       id: projectId,
       path: canonicalPath,
     });
@@ -36,7 +36,14 @@ export class ProjectRegistry {
     try {
       this.store.writeRegistry(registry);
     } catch (error) {
-      this.store.removeProject(projectId);
+      try {
+        this.store.rollbackNewProjectJson(projectId, 'project.json');
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          `Failed to register '${projectId}' and roll back its metadata.`,
+        );
+      }
       throw error;
     }
     return metadata;
@@ -60,19 +67,27 @@ export class ProjectRegistry {
     if (remaining.length === registry.projects.length) {
       throw new Error(`Project '${projectId}' is not registered.`);
     }
-    this.store.writeRegistry({ ...registry, projects: remaining });
+    const stagedPath = this.store.stageProjectRemoval(projectId);
     try {
-      this.store.removeProject(projectId);
+      this.store.writeRegistry({ ...registry, projects: remaining });
     } catch (error) {
       try {
-        this.store.writeRegistry(registry);
+        this.store.restoreStagedProject(projectId, stagedPath);
       } catch (rollbackError) {
         throw new AggregateError(
           [error, rollbackError],
-          `Failed to unregister '${projectId}' and restore the registry.`,
+          `Failed to unregister '${projectId}' and restore its staged derived data.`,
         );
       }
       throw error;
+    }
+    try {
+      this.store.discardStagedProject(stagedPath);
+    } catch (error) {
+      throw new Error(
+        `Project '${projectId}' was unregistered, but staged derived data cleanup failed: ${error.message}`,
+        { cause: error },
+      );
     }
   }
 }
