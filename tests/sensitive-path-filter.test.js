@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, parse, relative } from 'node:path';
 import test from 'node:test';
 
 import { SensitivePathFilter } from '../src/security/SensitivePathFilter.js';
@@ -32,6 +32,9 @@ test('excludes default sensitive files and generated directories', () => {
     'credentials.json',
     'config/credentials-prod.yaml',
     'secrets.toml',
+    'config/my-secrets.txt',
+    'config/aws-credentials.json',
+    'config/prod-secret.yml',
     '.git/config',
     'packages/app/node_modules/dependency/index.js',
     'dist/index.js',
@@ -69,6 +72,18 @@ test('resolves existing and missing paths that remain inside the repository', (t
 
   assert.equal(filter.resolveSafePath(repository, 'src/index.js'), join(canonicalRepository, 'src', 'index.js'));
   assert.equal(filter.resolveSafePath(repository, 'src/missing.js'), join(canonicalRepository, 'src', 'missing.js'));
+});
+
+// 한글: 시스템 루트를 repository 경계로 사용할 때도 내부 경로를 올바르게 허용한다.
+test('accepts descendants when the repository boundary is a filesystem root', (t) => {
+  const root = temporaryRoot(t);
+  const sourcePath = join(root, 'source.txt');
+  writeFileSync(sourcePath, 'safe\n');
+  const canonicalSource = realpathSync(sourcePath);
+  const filesystemRoot = parse(canonicalSource).root;
+  const filter = new SensitivePathFilter();
+
+  assert.equal(filter.resolveSafePath(filesystemRoot, relative(filesystemRoot, canonicalSource)), canonicalSource);
 });
 
 // 한글: 심볼릭 링크를 통한 저장소 경계 이탈을 거부한다.
@@ -135,6 +150,87 @@ test('redacts secret-like JSON properties and JavaScript declarations', () => {
   assert.match(redacted, /export TOKEN=\[REDACTED\]/);
   assert.deepEqual(filter.extractSecretKeys(input), ['api_key', 'clientSecret', 'TOKEN']);
   assert.doesNotMatch(redacted, /plain-json-secret|plain-js-secret|plain-exported-token/);
+});
+
+// 한글: 한 줄에 여러 할당문이 있어도 뒤따르는 민감값을 모두 마스킹한다.
+test('redacts later secret assignments on the same line', () => {
+  const filter = new SensitivePathFilter();
+  const input = 'let a = 1; const API_KEY = "plain-secret"; const TOKEN = "plain-token";';
+
+  const redacted = filter.redactText(input);
+
+  assert.equal(redacted, 'let a = 1; const API_KEY = "[REDACTED]"; const TOKEN = "[REDACTED]";');
+  assert.deepEqual(filter.extractSecretKeys(input), ['API_KEY', 'TOKEN']);
+  assert.doesNotMatch(redacted, /plain-secret|plain-token/);
+});
+
+// 한글: 쉼표로 구분된 선언에서도 모든 민감 할당값을 마스킹한다.
+test('redacts secret assignments separated by commas', () => {
+  const filter = new SensitivePathFilter();
+  const input = 'const a = 1, API_KEY = plain-secret, TOKEN = "plain-token";';
+
+  const redacted = filter.redactText(input);
+
+  assert.equal(redacted, 'const a = 1, API_KEY = [REDACTED], TOKEN = "[REDACTED]";');
+  assert.deepEqual(filter.extractSecretKeys(input), ['API_KEY', 'TOKEN']);
+  assert.doesNotMatch(redacted, /plain-secret|plain-token/);
+});
+
+// 한글: 함수 호출 내부의 쉼표는 할당값 경계로 오인하지 않고 전체 표현식을 마스킹한다.
+test('redacts complete secret expressions containing nested commas', () => {
+  const filter = new SensitivePathFilter();
+  const input = 'const TOKEN = join(prefix, "plain-secret"); const mode = "safe";';
+
+  const redacted = filter.redactText(input);
+
+  assert.equal(redacted, 'const TOKEN = [REDACTED]; const mode = "safe";');
+  assert.deepEqual(filter.extractSecretKeys(input), ['TOKEN']);
+  assert.doesNotMatch(redacted, /join|plain-secret/);
+});
+
+// 한글: 비민감 outer 값 내부의 민감 object property와 중첩 할당도 마스킹한다.
+test('redacts secret assignments nested inside non-secret values', () => {
+  const filter = new SensitivePathFilter();
+  const input = [
+    'const config = { apiKey: "plain-api-key", nested: { password: "plain-password" } };',
+    'const result = (TOKEN = "plain-token");',
+  ].join('\n');
+
+  const redacted = filter.redactText(input);
+
+  assert.match(redacted, /apiKey: "\[REDACTED\]"/);
+  assert.match(redacted, /password: "\[REDACTED\]"/);
+  assert.match(redacted, /TOKEN = "\[REDACTED\]"/);
+  assert.deepEqual(filter.extractSecretKeys(input), ['apiKey', 'password', 'TOKEN']);
+  assert.doesNotMatch(redacted, /plain-api-key|plain-password|plain-token/);
+});
+
+// 한글: 여러 줄에 걸친 quoted secret의 전체 본문을 마스킹한다.
+test('redacts complete multiline quoted secret assignments', () => {
+  const filter = new SensitivePathFilter();
+  const input = [
+    'const PRIVATE_KEY = `-----BEGIN RSA PRIVATE KEY-----',
+    'MIIEpAIBAAKCAQEA-plain-key-material',
+    '-----END RSA PRIVATE KEY-----`;',
+  ].join('\n');
+
+  const redacted = filter.redactText(input);
+
+  assert.equal(redacted, 'const PRIVATE_KEY = `[REDACTED]`;');
+  assert.deepEqual(filter.extractSecretKeys(input), ['PRIVATE_KEY']);
+  assert.doesNotMatch(redacted, /BEGIN RSA|MIIEpAIB|END RSA|plain-key-material/);
+});
+
+// 한글: 중첩 template literal이 있어도 민감값의 닫는 백틱까지 전체를 마스킹한다.
+test('redacts secret templates with nested template literals', () => {
+  const filter = new SensitivePathFilter();
+  const input = 'const PRIVATE_KEY = `before${`nested`}after-plain-secret`;';
+
+  const redacted = filter.redactText(input);
+
+  assert.equal(redacted, 'const PRIVATE_KEY = `[REDACTED]`;');
+  assert.deepEqual(filter.extractSecretKeys(input), ['PRIVATE_KEY']);
+  assert.doesNotMatch(redacted, /before|nested|after-plain-secret/);
 });
 
 // 한글: 이스케이프 문자열과 숫자형 JSON 민감값을 누출 없이 유효하게 마스킹한다.

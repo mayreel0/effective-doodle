@@ -5,7 +5,6 @@ const EXCLUDED_DIRECTORIES = new Set(['.git', 'node_modules', 'dist', 'build']);
 const SECRET_QUERY_NAME = '(?:api[-_]?key|access[-_]?(?:key|token)|private[-_]?key|client[-_]?secret|database[-_]?url|authorization|password|passwd|credential|secret|token)';
 const SECRET_QUERY_PARAMETER = new RegExp(`([?&#]${SECRET_QUERY_NAME}=)([^&#\\s"']*)`, 'gi');
 const CREDENTIAL_USERINFO = /([A-Za-z][A-Za-z0-9+.-]*:\/\/)([^/@\s"']+)@/g;
-const ASSIGNMENT = /^(?<leading>\s*(?:(?:export\s+)?(?:const|let|var)\s+|export\s+)?)(?<quote>["']?)(?<key>[A-Za-z][A-Za-z0-9_.-]*)\k<quote>(?<separator>\s*[:=]\s*)(?<value>.*)$/;
 
 export class SensitivePathFilter {
   isExcluded(relativePath) {
@@ -20,8 +19,7 @@ export class SensitivePathFilter {
         name.startsWith('.env.') ||
         name.endsWith('.pem') ||
         name.endsWith('.key') ||
-        name.startsWith('credentials') ||
-        name.startsWith('secrets')
+        hasSensitiveNameToken(segment)
       );
     });
   }
@@ -40,31 +38,15 @@ export class SensitivePathFilter {
 
   redactText(text) {
     assertText(text);
-    const redactedAssignments = text
-      .split('\n')
-      .map((line) => redactAssignment(line))
-      .join('\n');
-
-    return redactCredentialUrls(redactJsonProperties(redactedAssignments));
+    return redactCredentialUrls(redactAssignments(text));
   }
 
   extractSecretKeys(text) {
     assertText(text);
     const keys = new Set();
 
-    for (const line of text.split('\n')) {
-      const assignment = parseAssignment(line);
-      if (!assignment) continue;
-      if (isSecretKey(assignment.key) || containsCredentialUrl(assignment.value)) {
-        keys.add(assignment.key);
-      }
-    }
-
-    for (const match of text.matchAll(/(["'])([A-Za-z][A-Za-z0-9_.-]*)\1\s*:\s*(["'])((?:\\[\s\S]|(?!\3)[\s\S])*)\3/g)) {
-      if (isSecretKey(match[2]) || containsCredentialUrl(match[4])) keys.add(match[2]);
-    }
-    for (const match of text.matchAll(/(["'])([A-Za-z][A-Za-z0-9_.-]*)\1\s*:\s*(-?(?:\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null))(?=\s*[,}])/g)) {
-      if (isSecretKey(match[2])) keys.add(match[2]);
+    for (const assignment of scanAssignments(text)) {
+      if (isSecretKey(assignment.key) || containsCredentialUrl(assignment.value)) keys.add(assignment.key);
     }
 
     return [...keys].sort((left, right) => left.localeCompare(right, 'en'));
@@ -119,24 +101,198 @@ function physicalPath(path) {
 }
 
 function isSameOrDescendant(ancestor, candidate) {
-  return candidate === ancestor || candidate.startsWith(`${ancestor}${sep}`);
+  const descendantPrefix = ancestor.endsWith(sep) ? ancestor : `${ancestor}${sep}`;
+  return candidate === ancestor || candidate.startsWith(descendantPrefix);
 }
 
-function redactAssignment(line) {
-  const assignment = parseAssignment(line);
-  if (!assignment || !isSecretKey(assignment.key)) return line;
-  return `${assignment.prefix}${redactAssignedValue(assignment.value)}`;
+function hasSensitiveNameToken(name) {
+  const normalized = name
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .toLowerCase();
+  return /(?:^|[._-])(?:secrets?|credentials?)(?=[._-]|$)/.test(normalized);
 }
 
-function parseAssignment(line) {
-  const match = line.match(ASSIGNMENT);
-  if (!match) return null;
-  if (match.groups.separator.trim() === ':' && match.groups.value.startsWith('//')) return null;
+function redactAssignments(text) {
+  const assignments = scanAssignments(text).filter((assignment) => isSecretKey(assignment.key));
+  let redacted = '';
+  let cursor = 0;
+
+  for (const assignment of assignments) {
+    redacted += text.slice(cursor, assignment.redactionStart);
+    redacted += assignment.replacement;
+    cursor = assignment.redactionEnd;
+  }
+
+  return `${redacted}${text.slice(cursor)}`;
+}
+
+function scanAssignments(text) {
+  const assignments = [];
+  let index = 0;
+
+  while (index < text.length) {
+    const key = readKey(text, index);
+    if (!key.value) {
+      index = key.next;
+      continue;
+    }
+
+    let separatorIndex = skipWhitespace(text, key.end);
+    const separator = text[separatorIndex];
+    if (separator !== '=' && separator !== ':') {
+      index = key.end;
+      continue;
+    }
+
+    const valueStart = skipWhitespace(text, separatorIndex + 1);
+    if (isUrlScheme(key.value, separator, text.slice(valueStart))) {
+      index = findUrlEnd(text, valueStart);
+      continue;
+    }
+
+    const value = readValue(text, valueStart, key.quoted && separator === ':');
+    assignments.push({
+      key: key.value,
+      value: text.slice(valueStart, value.end),
+      redactionStart: value.redactionStart,
+      redactionEnd: value.redactionEnd,
+      replacement: value.replacement,
+    });
+    index = isSecretKey(key.value) ? Math.max(value.end, key.end) : Math.max(valueStart, key.end);
+  }
+
+  return assignments;
+}
+
+function readKey(text, index) {
+  const character = text[index];
+  if (character === '"' || character === "'") {
+    const end = findQuotedEnd(text, index, character);
+    if (end === -1) return { value: null, next: text.length };
+    const value = text.slice(index + 1, end);
+    return isKey(value)
+      ? { value, quoted: true, end: end + 1, next: end + 1 }
+      : { value: null, next: end + 1 };
+  }
+
+  if (!/[A-Za-z]/.test(character) || (index > 0 && /[A-Za-z0-9_.-]/.test(text[index - 1]))) {
+    return { value: null, next: index + 1 };
+  }
+
+  let end = index + 1;
+  while (end < text.length && /[A-Za-z0-9_.-]/.test(text[end])) end += 1;
+  return { value: text.slice(index, end), quoted: false, end, next: end };
+}
+
+function readValue(text, start, jsonScalar) {
+  const quote = text[start];
+  if (quote === '"' || quote === "'" || quote === '`') {
+    const closingQuote = findQuotedEnd(text, start, quote);
+    const contentEnd = closingQuote === -1 ? text.length : closingQuote;
+    return {
+      end: closingQuote === -1 ? text.length : closingQuote + 1,
+      redactionStart: start + 1,
+      redactionEnd: contentEnd,
+      replacement: '[REDACTED]',
+    };
+  }
+
+  const end = findUnquotedEnd(text, start);
+  let contentEnd = end;
+  while (contentEnd > start && /\s/.test(text[contentEnd - 1])) contentEnd -= 1;
   return {
-    key: match.groups.key,
-    prefix: `${match.groups.leading}${match.groups.quote}${match.groups.key}${match.groups.quote}${match.groups.separator}`,
-    value: match.groups.value,
+    end,
+    redactionStart: start,
+    redactionEnd: contentEnd,
+    replacement: jsonScalar ? '"[REDACTED]"' : '[REDACTED]',
   };
+}
+
+function findUnquotedEnd(text, start) {
+  let parentheses = 0;
+  let brackets = 0;
+  let braces = 0;
+  let index = start;
+
+  while (index < text.length) {
+    const character = text[index];
+    if (character === '"' || character === "'" || character === '`') {
+      const quotedEnd = findQuotedEnd(text, index, character);
+      if (quotedEnd === -1) return text.length;
+      index = quotedEnd + 1;
+      continue;
+    }
+    if (character === '(') parentheses += 1;
+    else if (character === ')' && parentheses > 0) parentheses -= 1;
+    else if (character === '[') brackets += 1;
+    else if (character === ']' && brackets > 0) brackets -= 1;
+    else if (character === '{') braces += 1;
+    else if (character === '}' && braces > 0) braces -= 1;
+    else if (parentheses === 0 && brackets === 0 && braces === 0 && /[;,\r\n}]/.test(character)) break;
+    index += 1;
+  }
+
+  return index;
+}
+
+function findQuotedEnd(text, start, quote) {
+  let index = start + 1;
+  while (index < text.length) {
+    if (text[index] === '\\') {
+      index += 2;
+      continue;
+    }
+    if (quote === '`' && text[index] === '$' && text[index + 1] === '{') {
+      const expressionEnd = findTemplateExpressionEnd(text, index + 2);
+      if (expressionEnd === -1) return -1;
+      index = expressionEnd + 1;
+      continue;
+    }
+    if (text[index] === quote) return index;
+    index += 1;
+  }
+  return -1;
+}
+
+function findTemplateExpressionEnd(text, start) {
+  let depth = 1;
+  let index = start;
+  while (index < text.length) {
+    const character = text[index];
+    if (character === '"' || character === "'" || character === '`') {
+      const quotedEnd = findQuotedEnd(text, index, character);
+      if (quotedEnd === -1) return -1;
+      index = quotedEnd + 1;
+      continue;
+    }
+    if (character === '{') depth += 1;
+    if (character === '}') {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+    index += 1;
+  }
+  return -1;
+}
+
+function skipWhitespace(text, start) {
+  let index = start;
+  while (index < text.length && /\s/.test(text[index])) index += 1;
+  return index;
+}
+
+function findUrlEnd(text, start) {
+  let index = start;
+  while (index < text.length && !/\s/.test(text[index])) index += 1;
+  return index;
+}
+
+function isKey(value) {
+  return /^[A-Za-z][A-Za-z0-9_.-]*$/.test(value);
+}
+
+function isUrlScheme(key, separator, value) {
+  return separator === ':' && value.startsWith('//') && /^[A-Za-z][A-Za-z0-9+.-]*$/.test(key);
 }
 
 function isSecretKey(key) {
@@ -149,30 +305,10 @@ function isSecretKey(key) {
   );
 }
 
-function redactAssignedValue(value) {
-  const quoted = value.match(/^(["'])(.*)\1(\s*[,;]?\s*)$/);
-  if (quoted) return `${quoted[1]}[REDACTED]${quoted[1]}${quoted[3]}`;
-  const punctuation = value.match(/([,;]\s*)$/)?.[1] ?? '';
-  return `[REDACTED]${punctuation}`;
-}
-
 function redactCredentialUrls(text) {
   return text
     .replace(CREDENTIAL_USERINFO, '$1[REDACTED]@')
     .replace(SECRET_QUERY_PARAMETER, '$1[REDACTED]');
-}
-
-function redactJsonProperties(text) {
-  const quoted = text.replace(
-    /(["'])([A-Za-z][A-Za-z0-9_.-]*)\1(\s*:\s*)(["'])((?:\\[\s\S]|(?!\4)[\s\S])*)\4/g,
-    (property, keyQuote, key, separator, valueQuote) =>
-      isSecretKey(key) ? `${keyQuote}${key}${keyQuote}${separator}${valueQuote}[REDACTED]${valueQuote}` : property,
-  );
-  return quoted.replace(
-    /(["'])([A-Za-z][A-Za-z0-9_.-]*)\1(\s*:\s*)(-?(?:\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null))(?=\s*[,}])/g,
-    (property, keyQuote, key, separator) =>
-      isSecretKey(key) ? `${keyQuote}${key}${keyQuote}${separator}"[REDACTED]"` : property,
-  );
 }
 
 function containsCredentialUrl(value) {
