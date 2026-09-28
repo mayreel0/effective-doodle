@@ -74,7 +74,9 @@ function runGit(repositoryPath, args) {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch (error) {
-    throw new GitAnalysisError(`Git command failed: git ${args[0]}`, { cause: error });
+    const stderr = typeof error.stderr === 'string' ? error.stderr.trim() : '';
+    const detail = stderr || error.message || `exit status ${error.status}`;
+    throw new GitAnalysisError(`Git command failed: git ${args[0]}: ${detail}`, { cause: error });
   }
 }
 

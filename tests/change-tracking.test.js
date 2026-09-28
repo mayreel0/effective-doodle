@@ -134,6 +134,19 @@ test('distinguishes repository failures from invalid refs', (t) => {
   );
 });
 
+// 한글: Git 명령 실패를 감쌀 때 stderr 진단 정보를 보존한다.
+test('preserves Git stderr when wrapping command failures', (t) => {
+  const { root, analyzer } = fixture(t);
+
+  assert.throws(
+    () => analyzer.analyze(join(root, 'not-a-repository'), { since: 'HEAD' }),
+    (error) =>
+      error instanceof GitAnalysisError &&
+      error.cause instanceof GitAnalysisError &&
+      error.cause.message.includes('not-a-repository'),
+  );
+});
+
 // 한글: 첫 sync는 현재 HEAD의 빈 스냅샷을 저장하고 그 revision을 기록한다.
 test('first sync snapshots HEAD to itself and records the current revision', (t) => {
   const { repo, store, registry, sync } = fixture(t);
