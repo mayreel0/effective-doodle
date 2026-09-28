@@ -41,3 +41,9 @@ wiki-init-project "Project Name"
 ```
 
 The generated `AGENTS.md` intentionally keeps `${OBSIDIAN_VAULT_DIR}` references instead of resolved personal paths.
+
+## Core change tracking
+
+`ChangeAnalyzer` compares an explicit Git ref with the repository's current `HEAD` and returns the resolved base and head revisions, commit SHA/message pairs, and per-file status plus line statistics. Rename paths are preserved separately, and binary files use `null` additions and deletions.
+
+`ProjectSync` stores that snapshot as versioned `changes.json` derived data and records the successful head as `lastSyncRevision` in versioned project metadata. An explicit `since` ref overrides the saved revision. On a project's first sync, the current `HEAD` is both base and head, so the stored change set is empty and that revision becomes the baseline for the next sync.
