@@ -1,3 +1,5 @@
+import { basename } from 'node:path';
+
 import { SensitivePathFilter } from '../security/SensitivePathFilter.js';
 import { SCHEMA_VERSION } from '../storage/KnowledgeStore.js';
 
@@ -75,11 +77,12 @@ export class ContextBuilder {
       decisions: [],
       warnings: [],
     };
-    const relevantDecisions = rankDecisions(
+    const rankedDecisions = rankDecisions(
       decisionIndex.decisions ?? [],
       taskTokens,
       this.pathFilter,
     );
+    const relevantDecisions = rankedDecisions.map(({ sourcePath, ...decision }) => decision);
     const { workingTree, ...currentState } = sanitizeCurrentState(current, this.pathFilter);
     const warnings = sanitizeWarnings(decisionIndex.warnings ?? [], this.pathFilter);
     if (changes !== null && changes.head !== current.revision) {
@@ -103,7 +106,11 @@ export class ContextBuilder {
       recentChanges: sanitizeChanges(changes, this.pathFilter),
       relevantDecisions,
       relevantConfiguration: rankConfiguration(current.facts?.config ?? [], taskTokens, this.pathFilter),
-      knownConstraints: extractConstraints(relevantDecisions, decisionIndex.decisions ?? [], this.pathFilter),
+      knownConstraints: extractConstraints(
+        rankedDecisions.map((decision) => decision.sourcePath),
+        decisionIndex.decisions ?? [],
+        this.pathFilter,
+      ),
       sourcePrecedence: [...SOURCE_PRECEDENCE],
       warnings,
     };
@@ -136,6 +143,7 @@ function rankDecisions(decisions, taskTokens, pathFilter) {
         if (matched) matchedTerms.push(term);
       }
       return {
+        sourcePath: decision.path,
         id: pathFilter.redactText(String(decision.id ?? '')),
         filename: sanitizeOutputPath(decision.filename, pathFilter),
         path: sanitizeOutputPath(decision.path, pathFilter),
@@ -154,7 +162,7 @@ function rankConfiguration(paths, taskTokens, pathFilter) {
   return paths
     .filter((path) => isAllowedPath(pathFilter, path))
     .map((path) => {
-      const pathTokens = tokenize(path, { removeStopwords: false });
+      const pathTokens = tokenize(basename(path), { removeStopwords: false });
       const matchedTerms = taskTokens.filter((term) => pathTokens.includes(term));
       return {
         path: sanitizeOutputPath(path, pathFilter),
@@ -166,12 +174,15 @@ function rankConfiguration(paths, taskTokens, pathFilter) {
     .sort((left, right) => right.score - left.score || compareText(left.path, right.path));
 }
 
-function extractConstraints(relevantDecisions, allDecisions, pathFilter) {
-  const relevantIds = new Set(relevantDecisions.map((decision) => decision.id));
+function extractConstraints(relevantPaths, allDecisions, pathFilter) {
+  const relevantPathSet = new Set(relevantPaths);
   const constraints = [];
   for (const decision of allDecisions) {
-    const safeId = pathFilter.redactText(String(decision.id ?? ''));
-    if (!relevantIds.has(safeId) || typeof decision.content !== 'string') continue;
+    if (
+      !isAllowedPath(pathFilter, decision.path) ||
+      !relevantPathSet.has(decision.path) ||
+      typeof decision.content !== 'string'
+    ) continue;
     const lines = decision.content.split(/\r?\n/);
     let insideFence = false;
     for (let index = 0; index < lines.length; index += 1) {
@@ -250,10 +261,15 @@ function sanitizeChanges(changes, pathFilter) {
           ...file,
           path: sanitizeOutputPath(file.path, pathFilter),
         };
-        if (file.previousPath && isAllowedPath(pathFilter, file.previousPath)) {
-          safeFile.previousPath = sanitizeOutputPath(file.previousPath, pathFilter);
-        } else {
-          delete safeFile.previousPath;
+        if (file.previousPath) {
+          if (isAllowedPath(pathFilter, file.previousPath)) {
+            safeFile.previousPath = sanitizeOutputPath(file.previousPath, pathFilter);
+          } else {
+            delete safeFile.previousPath;
+            if (safeFile.status === 'renamed' || safeFile.status === 'copied') {
+              safeFile.status = 'added';
+            }
+          }
         }
         return safeFile;
       }),
@@ -284,7 +300,7 @@ function sanitizeOutputPath(path, pathFilter) {
 function redactContextText(value, pathFilter) {
   const redacted = pathFilter.redactText(String(value));
   return redacted.replace(/\S+/g, (token) => {
-    const candidate = token.replace(/^[('"`]+|[),;:'"`]+$/g, '');
+    const candidate = token.replace(/^[('"`\[<{]+|[),;:'"`\]>}]+$/g, '');
     if (candidate.length === 0 || isAllowedPath(pathFilter, candidate)) return token;
     return token.replace(candidate, '[EXCLUDED]');
   });

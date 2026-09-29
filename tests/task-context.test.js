@@ -10,7 +10,7 @@ import { SensitivePathFilter } from '../src/security/SensitivePathFilter.js';
 import { KnowledgeStore } from '../src/storage/KnowledgeStore.js';
 import { createGitRepository, git } from './helpers/git-fixture.js';
 
-function fixture(t) {
+function fixture(t, { includeChanges = true, includeDecisions = true } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'doodle-context-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const repository = createGitRepository(root);
@@ -40,7 +40,7 @@ function fixture(t) {
       documentation: { readmes: ['README.md'], docs: ['docs'], adrs: ['docs/adr'], decisions: [] },
     },
   });
-  store.writeProjectJson('sample', 'changes.json', {
+  if (includeChanges) store.writeProjectJson('sample', 'changes.json', {
     projectId: 'sample',
     base: '1111111111111111111111111111111111111111',
     head,
@@ -58,7 +58,7 @@ function fixture(t) {
       },
     ],
   });
-  store.writeProjectJson('sample', 'decisions.json', {
+  if (includeDecisions) store.writeProjectJson('sample', 'decisions.json', {
     projectId: 'sample',
     decisions: [
       {
@@ -84,6 +84,14 @@ function fixture(t) {
         title: 'Authentication secret',
         status: 'accepted',
         content: 'TOKEN=hidden-secret',
+      },
+      {
+        id: '001-authentication',
+        filename: '001-authentication.md',
+        path: 'docs/adr/team-secrets/001-authentication.md',
+        title: 'Authentication secret duplicate',
+        status: 'accepted',
+        content: 'Constraint: excluded-path-secret must remain private.',
       },
       {
         id: '004-data-note',
@@ -139,6 +147,13 @@ test('builds separated context sections with deterministic lexical relevance', (
     'src/auth/token.js',
     'src/auth/public.js',
   ]);
+  assert.deepEqual(context.recentChanges.files[1], {
+    path: 'src/auth/public.js',
+    status: 'added',
+    additions: 0,
+    deletions: 0,
+    binary: false,
+  });
   assert.deepEqual(context.relevantDecisions.map((decision) => decision.id), ['001-authentication']);
   assert.deepEqual(context.relevantDecisions[0].matchedTerms, ['authentication', 'token']);
   assert.ok(context.relevantDecisions[0].score > 0);
@@ -191,6 +206,18 @@ test('weights filename and title matches above content-only matches', (t) => {
   ]);
 });
 
+// 한글: config relevance는 상위 directory가 아니라 설정 파일명만으로 계산한다.
+test('ranks configuration by filename without directory-name matches', (t) => {
+  const { builder, store } = fixture(t);
+  const current = store.readProjectJson('sample', 'current.json');
+  current.facts.config.push('billing/tsconfig.json');
+  store.writeProjectJson('sample', 'current.json', current);
+
+  const context = builder.getContext('sample', 'billing');
+
+  assert.deepEqual(context.relevantConfiguration, []);
+});
+
 // 한글: 빈 문자열이나 불용어만 있는 작업은 오류 없이 동일한 빈 relevance 결과를 만든다.
 test('returns predictable empty relevance for empty and stopword-only tasks', (t) => {
   const { builder } = fixture(t);
@@ -224,7 +251,7 @@ test('does not expose secret values or excluded decision paths', (t) => {
 
   const changes = store.readProjectJson('sample', 'changes.json');
   changes.commits[0].message =
-    'Update .env and team-secrets/private.js; TOKEN=commit-secret';
+    'Update .env, [node_modules/private.js], and [dist/bundle.js]; TOKEN=commit-secret';
   changes.files.push({
     path: 'src/TOKEN=change-secret.js',
     status: 'added',
@@ -245,9 +272,9 @@ test('does not expose secret values or excluded decision paths', (t) => {
 
   assert.doesNotMatch(
     serialized,
-    /plain-secret|hidden-secret|commit-secret|db-secret|task-secret|branch-secret|path-secret|working-secret|config-secret|change-secret|status-secret|warning-secret/,
+    /plain-secret|hidden-secret|excluded-path-secret|commit-secret|db-secret|task-secret|branch-secret|path-secret|working-secret|config-secret|change-secret|status-secret|warning-secret/,
   );
-  assert.doesNotMatch(serialized, /team-secrets|\.env/);
+  assert.doesNotMatch(serialized, /team-secrets|node_modules|dist\/bundle|\.env/);
   assert.match(serialized, /\[REDACTED\]/);
 });
 
@@ -264,6 +291,18 @@ test('warns when current state and recent changes describe different revisions',
     source: 'consistency',
     message: `Current state revision ${context.project.revision} differs from recent changes head ${changes.head}.`,
   });
+});
+
+// 한글: changes와 decisions가 아직 생성되지 않은 부분 동기화 상태에서도 빈 section을 반환한다.
+test('handles missing optional changes and decisions snapshots', (t) => {
+  const { builder } = fixture(t, { includeChanges: false, includeDecisions: false });
+
+  const context = builder.getContext('sample', 'authentication');
+
+  assert.equal(context.recentChanges, null);
+  assert.deepEqual(context.relevantDecisions, []);
+  assert.deepEqual(context.knownConstraints, []);
+  assert.deepEqual(context.warnings, []);
 });
 
 // 한글: current state가 없으면 sync가 필요하다는 명확한 오류를 반환한다.
