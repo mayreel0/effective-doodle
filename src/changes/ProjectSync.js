@@ -2,6 +2,7 @@ import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { ChangeAnalyzer } from './ChangeAnalyzer.js';
+import { sanitizeChanges } from './sanitizeChanges.js';
 
 export class ProjectSync {
   constructor({ registry, store, analyzer = new ChangeAnalyzer() }) {
@@ -13,7 +14,7 @@ export class ProjectSync {
   run(projectId, { since } = {}) {
     const project = this.registry.get(projectId);
     const baseRef = since ?? project.lastSyncRevision ?? 'HEAD';
-    const analysis = this.analyzer.analyze(project.path, { since: baseRef });
+    const analysis = sanitizeChanges(this.analyzer.analyze(project.path, { since: baseRef }));
     const previousChanges = this.store.readProjectJson(projectId, 'changes.json');
     const changes = this.store.writeProjectJson(projectId, 'changes.json', {
       projectId,

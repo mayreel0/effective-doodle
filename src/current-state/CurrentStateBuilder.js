@@ -53,7 +53,8 @@ export class CurrentStateBuilder {
     assertProjectId(projectId);
     const safeFiles = this.repository
       .visibleFiles()
-      .filter((path) => !this.sensitivePathFilter.isExcluded(path));
+      .filter((path) => !this.sensitivePathFilter.isExcluded(path))
+      .map((path) => this.sensitivePathFilter.redactText(path));
     const gitRevision = this.repository.revision();
     const revisionPaths = [
       ...gitRevision.committed,
@@ -66,7 +67,7 @@ export class CurrentStateBuilder {
     const workingTree = Object.fromEntries(
       Object.entries(gitRevision.workingTree).map(([state, paths]) => [
         state,
-        paths.filter(isSafeRevisionPath),
+        paths.filter(isSafeRevisionPath).map((path) => this.sensitivePathFilter.redactText(path)),
       ]),
     );
 
@@ -75,9 +76,10 @@ export class CurrentStateBuilder {
       projectId,
       revision: gitRevision.head,
       repository: {
-        branch: gitRevision.branch,
+        branch: this.sensitivePathFilter.redactText(gitRevision.branch),
         head: gitRevision.head,
-        committed: gitRevision.committed.filter(isSafeRevisionPath),
+        committed: gitRevision.committed.filter(isSafeRevisionPath)
+          .map((path) => this.sensitivePathFilter.redactText(path)),
       },
       workingTree,
       generatedAt,

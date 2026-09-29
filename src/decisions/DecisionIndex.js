@@ -38,11 +38,11 @@ export class DecisionIndex {
         const title = firstH1(markdown);
         if (title === null) warnings.push({ path, message: 'Decision document has no H1 title.' });
         decisions.push({
-          id: basename(path, extname(path)),
-          filename: basename(path),
-          path,
-          title,
-          status: decisionStatus(markdown),
+          id: this.pathFilter.redactText(basename(path, extname(path))),
+          filename: this.pathFilter.redactText(basename(path)),
+          path: this.pathFilter.redactText(path),
+          title: title === null ? null : this.pathFilter.redactText(title),
+          status: this.pathFilter.redactText(decisionStatus(markdown)),
           content: this.pathFilter.redactText(markdown).slice(0, this.maxContentLength),
         });
       } catch (error) {
@@ -55,7 +55,10 @@ export class DecisionIndex {
     return this.store.writeProjectJson(project.id, 'decisions.json', {
       projectId: project.id,
       decisions,
-      warnings,
+      warnings: warnings.map((warning) => ({
+        path: this.pathFilter.redactText(warning.path),
+        message: this.pathFilter.redactText(warning.message),
+      })),
     });
   }
 
