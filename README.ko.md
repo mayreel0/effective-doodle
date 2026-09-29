@@ -11,6 +11,7 @@ effective-doodle v0.2는 **구현이 완료된 로컬 Project Knowledge Engine M
 Node.js 20 이상과 Git이 필요합니다. 아래 명령은 **effective-doodle 저장소의 루트에서** 실행하며, 이 저장소 자체를 대상으로 동작을 확인합니다. 전역 명령을 설치할 필요는 없습니다.
 
 ```bash
+npm ci
 export DOODLE_HOME="$(mktemp -d)"
 
 node bin/doodle.js register "$PWD" --id demo
@@ -53,6 +54,8 @@ node bin/doodle.js unregister demo
 ```text
 DOODLE_HOME/
   registry.json
+  registry-transaction.json  # 중단된 registry 갱신의 복구가 필요할 때만 존재
+  .registry.lock/             # 일시적인 로컬 프로세스 간 잠금
   projects/<id>/
     project.json       # 원본 경로와 마지막 성공 동기화 revision
     current.json       # 커밋 상태, 작업 트리, 감지한 사실
@@ -62,7 +65,7 @@ DOODLE_HOME/
 
 모든 저장 JSON에는 `schemaVersion: 1`이 들어갑니다. 원본 저장소를 다시 등록하면 파생 스냅샷을 재생성할 수 있습니다. 민감한 경로를 제외하고 인식 가능한 비밀값을 파생 출력에서 가리지만 **범용 비밀정보 탐지기는 아닙니다**. JSON이나 스크린샷을 공개하기 전에는 직접 확인하세요.
 
-v0.2의 registry는 단일 쓰기 프로세스를 전제로 합니다. 같은 `DOODLE_HOME`을 대상으로 `register` 또는 `unregister`를 동시에 실행하지 마세요. 공유 저장소를 사용하는 Orchestrator나 백그라운드 프로세스를 도입하기 전 필요한 프로세스 간 잠금은 [DEV-83](https://linear.app/kim015jh/issue/DEV-83)에서 다룹니다.
+`register`·`unregister`·`list`·프로젝트 조회는 `DOODLE_HOME`별 로컬 잠금을 사용합니다. 동시 갱신은 최대 5초간 기다린 뒤 잠금을 얻지 못하면 registry를 변경하지 않고 명확한 오류를 냅니다. 프로세스가 강제 종료됐다면 잠금이 오래된 것으로 판정될 때까지(최대 30초) 기다렸다가 재시도하세요. 이후 명령은 중단된 registry 작업을 복구하며, 남은 정리는 다음 갱신에서 마칩니다. 단일 컴퓨터의 로컬 저장소를 대상으로 하며 네트워크 파일시스템이나 `sync`와 `unregister`의 동시 실행까지 일관성을 보장하지는 않습니다.
 
 프로그램에서는 패키지가 내보내는 `KnowledgeProvider`를 사용할 수 있습니다. CLI는 인자를 해석하고 이 API를 호출한 뒤 결과를 출력하는 역할만 합니다.
 
@@ -81,6 +84,7 @@ const context = knowledge.getContext('sample', 'authentication');
 - `current.json` 또는 `changes.json`이 없다는 오류: 저장된 정보를 읽기 전에 `sync <id>`를 실행하세요.
 - 저장 위치 경계 오류: `DOODLE_HOME`을 원본 저장소 밖으로 옮기세요.
 - `HEAD~1`이 유효하지 않다는 오류: `HEAD`처럼 존재하는 ref를 쓰거나 커밋이 두 개 이상인 저장소에서 시도하세요.
+- registry 잠금 대기 시간 초과: 같은 `DOODLE_HOME`을 갱신하는 다른 프로세스가 끝나면 다시 시도하세요. 프로세스가 중단됐다면 오래된 잠금이 만료될 때까지 최대 30초 기다린 뒤 재시도하세요.
 
 `npm test`는 Node.js 단위·통합 테스트와 기존 셸 테스트를 실행합니다. 실제 저장소 `congenial-pancake`에서의 MVP 검증 결과는 [DEV-80](https://linear.app/kim015jh/issue/DEV-80)에 기록돼 있습니다.
 

@@ -1,21 +1,121 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
+import { Worker } from 'node:worker_threads';
 
 export const SCHEMA_VERSION = 1;
 
 export class KnowledgeStore {
-  constructor({ home } = {}) {
+  constructor({ home, registryLockStaleMs = 30_000 } = {}) {
     const configuredHome = home ?? process.env.DOODLE_HOME ?? join(homedir(), '.doodle');
     if (typeof configuredHome !== 'string' || configuredHome.trim().length === 0) {
       throw new Error('DOODLE_HOME must not be empty.');
     }
     this.home = resolve(configuredHome);
+    if (!Number.isInteger(registryLockStaleMs) || registryLockStaleMs < 2_000) {
+      throw new Error('registryLockStaleMs must be at least 2000 milliseconds.');
+    }
+    this.registryLockStaleMs = registryLockStaleMs;
   }
 
   registryPath() {
     return join(this.home, 'registry.json');
+  }
+
+  registryTransactionPath() {
+    return join(this.home, 'registry-transaction.json');
+  }
+
+  beginRegistryMutation(transaction) {
+    writeJsonAtomic(this.registryTransactionPath(), withSchemaVersion(transaction));
+  }
+
+  finishRegistryMutation() {
+    rmSync(this.registryTransactionPath(), { force: true });
+  }
+
+  recoverRegistryMutation({ cleanupCommitted = true } = {}) {
+    let transaction;
+    try {
+      transaction = readVersionedJson(this.registryTransactionPath());
+    } catch (error) {
+      if (error.cause?.code === 'ENOENT') return;
+      throw error;
+    }
+    assertProjectId(transaction.projectId);
+    const registry = this.readRegistry();
+    const registered = registry.projects.some((project) => project.id === transaction.projectId);
+    if (transaction.operation === 'register' && typeof transaction.path === 'string') {
+      const metadata = this.readProjectJson(transaction.projectId, 'project.json');
+      if (registered) {
+        if (metadata?.path !== transaction.path) {
+          throw new Error(`Cannot recover registration for '${transaction.projectId}': metadata differs from registry transaction.`);
+        }
+      } else {
+        if (metadata && metadata.path !== transaction.path) {
+          throw new Error(`Cannot recover registration for '${transaction.projectId}': derived data belongs to another project.`);
+        }
+        this.rollbackNewProjectJson(transaction.projectId, 'project.json');
+      }
+    } else if (transaction.operation === 'unregister' && typeof transaction.stagingName === 'string') {
+      const stagedPath = this.stagedRemovalPath(transaction.projectId, transaction.stagingName);
+      if (registered) {
+        if (existsSync(stagedPath)) {
+          if (existsSync(this.projectDirectory(transaction.projectId))) {
+            throw new Error(`Cannot recover unregistration for '${transaction.projectId}': both active and staged data exist.`);
+          }
+          this.restoreStagedProject(transaction.projectId, stagedPath);
+        } else if (!existsSync(this.projectDirectory(transaction.projectId))) {
+          throw new Error(`Cannot recover unregistration for '${transaction.projectId}': project data is missing.`);
+        }
+      } else {
+        if (!cleanupCommitted) return;
+        this.discardStagedProject(stagedPath);
+      }
+    } else {
+      throw new Error('Invalid project registry transaction.');
+    }
+    this.finishRegistryMutation();
+  }
+
+  withRegistryLock(operation) {
+    mkdirSync(this.home, { recursive: true });
+    // The registry operations below are synchronous. Keep the lock's heartbeat on
+    // another event loop so a long operation cannot make its own lock stale.
+    const signal = new SharedArrayBuffer(16 + 512);
+    const state = new Int32Array(signal, 0, 4);
+    const owner = new Worker(new URL('./registry-lock-worker.js', import.meta.url), {
+      workerData: { home: this.home, staleMs: this.registryLockStaleMs, signal },
+    });
+    owner.on('error', () => {}); // The synchronous waiter reports worker failures by timeout.
+    owner.unref();
+    const deadline = Date.now() + 6_000;
+    while (Atomics.load(state, 0) === 0 && Date.now() < deadline) {
+      Atomics.wait(state, 0, 0, 50);
+    }
+    const acquired = Atomics.load(state, 0);
+    if (acquired !== 1) {
+      Atomics.store(state, 1, 1);
+      Atomics.notify(state, 1);
+      if (acquired === 2 || acquired === 0) {
+        throw new Error('Timed out waiting for the project registry lock.');
+      }
+      throw new Error(`Could not acquire the project registry lock: ${lockWorkerError(signal, state)}`);
+    }
+    try {
+      return operation();
+    } finally {
+      Atomics.store(state, 1, 1);
+      Atomics.notify(state, 1);
+      const releaseDeadline = Date.now() + 5_000;
+      while (Atomics.load(state, 0) === 1 && Date.now() < releaseDeadline) {
+        Atomics.wait(state, 0, 1, 50);
+      }
+      if (Atomics.load(state, 0) !== 4) {
+        throw new Error(`Could not release the project registry lock: ${lockWorkerError(signal, state)}`);
+      }
+    }
   }
 
   projectDirectory(projectId) {
@@ -70,6 +170,12 @@ export class KnowledgeStore {
     return versionedValue;
   }
 
+  assertNewProjectStorageAvailable(projectId) {
+    if (existsSync(this.projectDirectory(projectId))) {
+      throw new Error(`Derived project storage already exists for '${projectId}'.`);
+    }
+  }
+
   writeNewProjectJson(projectId, filename, value) {
     assertJsonFilename(filename);
     const projectDirectory = this.projectDirectory(projectId);
@@ -102,10 +208,23 @@ export class KnowledgeStore {
     }
   }
 
-  stageProjectRemoval(projectId) {
+  newStagedRemovalName(projectId) {
+    assertProjectId(projectId);
+    return `${projectId}.${randomUUID()}`;
+  }
+
+  stagedRemovalPath(projectId, stagingName) {
+    assertProjectId(projectId);
+    if (!stagingName.startsWith(`${projectId}.`) || !/^[0-9a-f-]{36}$/i.test(stagingName.slice(projectId.length + 1))) {
+      throw new Error('Invalid staged project removal name.');
+    }
+    return join(this.home, 'staged-removals', stagingName);
+  }
+
+  stageProjectRemoval(projectId, stagingName = this.newStagedRemovalName(projectId)) {
     const projectDirectory = this.projectDirectory(projectId);
     const stagingDirectory = join(this.home, 'staged-removals');
-    const stagedPath = join(stagingDirectory, `${projectId}.${randomUUID()}`);
+    const stagedPath = this.stagedRemovalPath(projectId, stagingName);
     mkdirSync(stagingDirectory, { recursive: true });
     try {
       renameSync(projectDirectory, stagedPath);
@@ -130,6 +249,12 @@ export class KnowledgeStore {
     rmSync(stagedPath, { recursive: true, force: true });
     removeEmptyDirectory(dirname(stagedPath));
   }
+}
+
+function lockWorkerError(signal, state) {
+  const length = Atomics.load(state, 2);
+  if (length === 0) return 'lock owner did not respond';
+  return Buffer.from(new Uint8Array(signal, 16, length)).toString('utf8');
 }
 
 function removeEmptyDirectory(path) {

@@ -11,6 +11,7 @@ The MVP is a CLI and reusable Node.js API, not a hosted service or AI assistant.
 You need Node.js 20 or newer and Git. Run these commands **from the effective-doodle repository** to inspect this repository itself, without installing a global command:
 
 ```bash
+npm ci
 export DOODLE_HOME="$(mktemp -d)"
 
 node bin/doodle.js register "$PWD" --id demo
@@ -51,6 +52,8 @@ Run `sync` before `current`, default `changes`, or `context`. The **first** `syn
 ```text
 DOODLE_HOME/
   registry.json
+  registry-transaction.json  # present only while a registry update needs recovery
+  .registry.lock/             # temporary local cross-process lock
   projects/<id>/
     project.json       # source path and last successful sync revision
     current.json       # committed state, working tree, and detected facts
@@ -60,7 +63,7 @@ DOODLE_HOME/
 
 By default, derived data lives under `~/.doodle`; `DOODLE_HOME` overrides that location. All persisted JSON has `schemaVersion: 1`. After registering the source repository again, its derived snapshots can be regenerated. Sensitive paths are excluded and recognized secret-like values are redacted from derived output, but this is **not a general secret scanner**: inspect any JSON or screenshot before publishing it.
 
-The v0.2 registry assumes a single writer. Do not run concurrent `register` or `unregister` processes against the same `DOODLE_HOME`. Cross-process locking is tracked separately in [DEV-83](https://linear.app/kim015jh/issue/DEV-83) for use before a shared-home orchestrator or background processes.
+`register`, `unregister`, `list`, and project lookup coordinate through one local lock per `DOODLE_HOME`. Concurrent updates wait up to five seconds, then fail clearly without changing the registry. If a process is killed, retry after the lock becomes stale (up to 30 seconds); subsequent operations recover interrupted registry work, and the next update finishes any pending cleanup. This is for processes on one machine and does not guarantee consistency on network filesystems or for concurrent `sync` and `unregister` operations.
 
 `KnowledgeProvider` is the core application API exported from the package. The CLI only parses commands, calls this API, and formats its result:
 
@@ -79,6 +82,7 @@ const context = knowledge.getContext('sample', 'authentication');
 - A missing `current.json` or `changes.json` error: run `sync <id>` before reading saved data.
 - A storage-boundary error: move `DOODLE_HOME` outside the source repository.
 - An invalid `HEAD~1` ref: use an existing ref such as `HEAD`, or a repository with at least two commits.
+- A registry-lock timeout: another process is updating the same `DOODLE_HOME`; retry after it finishes. After a crash, allow up to 30 seconds for the stale lock to expire before retrying.
 
 Run `npm test` for the Node.js unit/integration suite and the legacy shell suite. The MVP's real-repository smoke validation is recorded in [DEV-80](https://linear.app/kim015jh/issue/DEV-80).
 
