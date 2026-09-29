@@ -83,6 +83,8 @@ Automatic private knowledge capture uses only the project-local agent-owned dire
 
 If the Vault is missing, unavailable, or unwritable, finish the development work and report the capture limitation. Do not fall back to writing wiki documents inside the source repository. New agent notes stay private by default; publication remains a manual decision.
 
+Before capture, inspect only project notes relevant to the topic and reuse the existing topic slug. If a human-authored note already covers the knowledge, write nothing; if it contradicts verified evidence, preserve it and report the conflict. For a repeated agent-owned topic, skip when unchanged or update its one canonical private note when the `llm_content_sha256` still matches. Recheck the digest and private status immediately before replacement. If either differs, leave the note unchanged and report the conflict; do not create a second note. Keep old and new evidence distinct, and do not turn an unverified inference into a fact. If ownership or the canonical note is ambiguous, report the conflict rather than changing a human note.
+
 ## Public Safety
 
 Project wiki documents may be public or private. Public documents must opt in:

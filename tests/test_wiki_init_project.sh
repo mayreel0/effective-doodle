@@ -70,8 +70,28 @@ grep -Fq 'managed_by: llm-agent' "$agents_file" ||
   fail 'new notes lack an agent ownership marker'
 grep -Fq 'llm_content_sha256' "$agents_file" ||
   fail 'new notes lack the DEV-89 integrity marker'
-grep -Fq 'If the topic path already exists, do not overwrite it' "$agents_file" ||
-  fail 'existing human or agent notes could be overwritten'
+grep -Fq 'Search only relevant project notes before creating or updating' "$agents_file" ||
+  fail 'capture does not check for existing related knowledge'
+grep -Fq 'update the one canonical agent-managed note' "$agents_file" ||
+  fail 'repeat capture cannot update one canonical note'
+grep -Fq 'reuse the existing topic slug' "$agents_file" ||
+  fail 'repeat capture may create another slug for the same topic'
+grep -Fq 'only if it remains private and its digest matches' "$agents_file" ||
+  fail 'an unsafe note can be updated'
+grep -Fq 'recheck its digest and private status immediately before replacement' "$agents_file" ||
+  fail 'an intervening change can be silently overwritten'
+grep -Fq 'If ownership, publication status, digest, or the canonical note is uncertain, skip the write' "$agents_file" ||
+  fail 'ambiguous ownership or publication may be overwritten'
+grep -Fq 'If the same knowledge is already covered, write nothing' "$agents_file" ||
+  fail 'repeat capture would create unnecessary notes'
+grep -Fq 'Leave human-authored notes unchanged' "$agents_file" ||
+  fail 'human notes are not protected from automatic updates'
+grep -Fq 'report the conflict without creating another note' "$agents_file" ||
+  fail 'conflicting notes would create duplicates'
+grep -Fiq 'preserve old and new evidence separately' "$agents_file" ||
+  fail 'note updates may lose their evidence history'
+grep -Fq 'Do not promote an inference to a confirmed fact' "$agents_file" ||
+  fail 'note revisions may turn conjecture into asserted fact'
 grep -Fq 'only if durable knowledge would have been saved' "$agents_file" ||
   fail 'missing Vault may be reported for routine tasks'
 if grep -Fq 'When the user says "위키 모드"' "$agents_file"; then
