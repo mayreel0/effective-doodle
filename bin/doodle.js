@@ -100,6 +100,11 @@ try {
   process.stdout.write(`${request.options['--json'] ? JSON.stringify(value) : human(request.command, value)}\n`);
 } catch (error) {
   process.stderr.write(`${error.message}\n`);
+  if (error instanceof AggregateError) {
+    for (const cause of error.errors) {
+      process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
+    }
+  }
   if (error instanceof UsageError) process.stderr.write(`${USAGE}\n`);
   process.exitCode = error instanceof UsageError ? 2 : 1;
 }

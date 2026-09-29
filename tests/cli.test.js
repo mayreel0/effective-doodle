@@ -33,7 +33,6 @@ function success(home, ...args) {
 // 한글: CLI의 모든 명령이 외부 저장소를 사용하며 JSON은 기계가 바로 읽을 수 있다.
 test('runs every CLI command with isolated external storage', (t) => {
   const { repo, home } = fixture(t);
-  const before = git(repo, ['status', '--porcelain']);
   const registered = JSON.parse(success(home, 'register', repo, '--id', 'sample', '--json'));
   assert.equal(registered.schemaVersion, 1);
   assert.equal(registered.id, 'sample');
@@ -72,7 +71,7 @@ test('runs every CLI command with isolated external storage', (t) => {
   }
   assert.equal(JSON.parse(success(home, 'unregister', 'sample', '--json')).unregistered, true);
   assert.deepEqual(JSON.parse(success(home, 'list', '--json')).projects, []);
-  assert.equal(before, '');
+  assert.equal(git(repo, ['status', '--porcelain']), sourceStatus);
 });
 
 // 한글: 잘못된 명령과 인자, Git 참조, 미등록 프로젝트는 stderr와 실패 코드로 구분된다.
@@ -93,6 +92,31 @@ test('reports usage and domain errors without JSON stdout contamination', (t) =>
   assert.equal(badRef.status, 1);
   assert.equal(badRef.stdout, '');
   assert.match(badRef.stderr, /Invalid Git ref/);
+});
+
+// 한글: 동기화와 롤백이 모두 실패하면 CLI는 두 원인을 모두 stderr에 표시한다.
+test('reports nested AggregateError causes on stderr', (t) => {
+  const { home } = fixture(t);
+  const script = `
+    import { KnowledgeProvider } from ${JSON.stringify(resolve('src/index.js'))};
+    KnowledgeProvider.prototype.sync = () => {
+      throw new AggregateError(
+        [new Error('original sync failure'), new Error('rollback failure')],
+        'sync and rollback failed',
+      );
+    };
+    process.argv = [process.execPath, ${JSON.stringify(cli)}, 'sync', 'sample'];
+    await import(${JSON.stringify(cli)});
+  `;
+  const result = spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
+    encoding: 'utf8',
+    env: { ...process.env, DOODLE_HOME: home },
+  });
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  assert.match(result.stderr, /sync and rollback failed/);
+  assert.match(result.stderr, /original sync failure/);
+  assert.match(result.stderr, /rollback failure/);
 });
 
 // 한글: 모듈 소비자는 CLI를 거치지 않고 핵심 API로 동기화와 컨텍스트 조회를 실행한다.

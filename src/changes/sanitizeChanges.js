@@ -8,12 +8,20 @@ export function sanitizeChanges(changes, pathFilter = new SensitivePathFilter())
       message: pathFilter.redactText(commit.message),
     })),
     files: changes.files
-      .filter((file) => !pathFilter.isExcluded(file.path) &&
-        (!file.previousPath || !pathFilter.isExcluded(file.previousPath)))
-      .map((file) => ({
-        ...file,
-        path: pathFilter.redactText(file.path),
-        ...(file.previousPath ? { previousPath: pathFilter.redactText(file.previousPath) } : {}),
-      })),
+      .filter((file) => !pathFilter.isExcluded(file.path))
+      .map((file) => {
+        const safeFile = { ...file, path: pathFilter.redactText(file.path) };
+        if (file.previousPath) {
+          if (pathFilter.isExcluded(file.previousPath)) {
+            delete safeFile.previousPath;
+            if (safeFile.status === 'renamed' || safeFile.status === 'copied') {
+              safeFile.status = 'added';
+            }
+          } else {
+            safeFile.previousPath = pathFilter.redactText(file.previousPath);
+          }
+        }
+        return safeFile;
+      }),
   };
 }

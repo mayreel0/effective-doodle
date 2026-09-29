@@ -45,11 +45,6 @@ export class KnowledgeProvider {
       this.store.readProjectJson(projectId, filename),
     ]));
     try {
-      if (rebuild) {
-        for (const filename of filenames.slice(1)) {
-          rmSync(join(this.store.projectDirectory(projectId), filename), { force: true });
-        }
-      }
       const changes = this.projectSync.run(projectId, { since: baseRef });
       const current = new CurrentStateBuilder({
         repository: new GitRepository(project.path),
@@ -84,6 +79,7 @@ export class KnowledgeProvider {
 
   getChanges(projectId, { since } = {}) {
     const project = this.registry.get(projectId);
+    this.store.assertExternalToRepository(project.path, projectId);
     if (since !== undefined) {
       return {
         schemaVersion: SCHEMA_VERSION,
