@@ -12,7 +12,6 @@ You need Node.js 20 or newer and Git. Run these commands **from the effective-do
 
 ```bash
 export DOODLE_HOME="$(mktemp -d)"
-echo "$DOODLE_HOME"
 
 node bin/doodle.js register "$PWD" --id demo
 node bin/doodle.js list
@@ -22,8 +21,6 @@ node bin/doodle.js changes demo --since HEAD~1
 node bin/doodle.js context demo --task "registry"
 node bin/doodle.js unregister demo
 ```
-
-`DOODLE_HOME` holds derived data. The temporary directory above keeps this trial separate from normal data and outside the source repository. To inspect its value, use `echo "$DOODLE_HOME"`; entering `DOODLE_HOME` alone asks the shell to run a command and produces `command not found`.
 
 This screenshot is an anonymized illustration. Paths are placeholders and commit IDs are shortened; the commands and explanations in this README are authoritative.
 
@@ -78,7 +75,6 @@ const context = knowledge.getContext('sample', 'authentication');
 
 ## Troubleshooting and verification
 
-- `zsh: command not found: DOODLE_HOME`: use `echo "$DOODLE_HOME"` to inspect the environment variable.
 - `doodle: command not found`: use `node bin/doodle.js` from this repository, or run `npm link` here first.
 - A missing `current.json` or `changes.json` error: run `sync <id>` before reading saved data.
 - A storage-boundary error: move `DOODLE_HOME` outside the source repository.

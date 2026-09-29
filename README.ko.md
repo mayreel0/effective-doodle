@@ -12,7 +12,6 @@ Node.js 20 이상과 Git이 필요합니다. 아래 명령은 **effective-doodle
 
 ```bash
 export DOODLE_HOME="$(mktemp -d)"
-echo "$DOODLE_HOME"
 
 node bin/doodle.js register "$PWD" --id demo
 node bin/doodle.js list
@@ -22,8 +21,6 @@ node bin/doodle.js changes demo --since HEAD~1
 node bin/doodle.js context demo --task "registry"
 node bin/doodle.js unregister demo
 ```
-
-`DOODLE_HOME`은 파생 데이터 저장 위치입니다. 위 명령은 임시 폴더를 만들어 평소 데이터 및 원본 저장소와 분리합니다. 값을 확인할 때는 `echo "$DOODLE_HOME"`을 사용하세요. `DOODLE_HOME`만 입력하면 셸이 이를 명령으로 실행하려 하므로 `command not found`가 표시됩니다.
 
 아래 이미지는 실행 흐름을 익명화한 예시입니다. 경로는 대체값이고 커밋 ID는 짧게 표시했습니다. 정확한 명령과 설명은 이 문서의 텍스트를 기준으로 해주세요.
 
@@ -80,7 +77,6 @@ const context = knowledge.getContext('sample', 'authentication');
 
 ## 문제 해결과 검증
 
-- `zsh: command not found: DOODLE_HOME`: 환경변수 값은 `echo "$DOODLE_HOME"`으로 확인하세요.
 - `doodle: command not found`: 이 저장소에서 `node bin/doodle.js`를 쓰거나 먼저 `npm link`를 실행하세요.
 - `current.json` 또는 `changes.json`이 없다는 오류: 저장된 정보를 읽기 전에 `sync <id>`를 실행하세요.
 - 저장 위치 경계 오류: `DOODLE_HOME`을 원본 저장소 밖으로 옮기세요.
