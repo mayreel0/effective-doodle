@@ -12,7 +12,7 @@
   "scripts": {
     "test": "npm run test:unit && npm run test:legacy",
     "test:unit": "node --test tests/*.test.js",
-    "test:legacy": "for test_file in tests/*.sh; do bash \"$test_file\"; done"
+    "test:legacy": "for test_file in tests/*.sh; do bash \"$test_file\" || exit; done"
   },
   "engines": {
     "node": ">=20"
