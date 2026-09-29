@@ -75,3 +75,10 @@ If unsure where to store wiki documents, ask before writing.
 
 Do not default to writing wiki documents into the current repository.
 <!-- project-wiki-mode:end -->
+
+## Development Workflow
+
+- Keep investigation narrow: read the relevant issue, changed files, and nearby tests before expanding the search. Summarize repetitive command output, but preserve source contracts and failure details.
+- Match verification to the change's risk. Run focused checks while developing and the full `npm test` suite before proposing a PR. Do not trade away security, error handling, or test coverage to save tokens.
+- Completion criteria should include representative usage commands and their expected results. Review the actual diff for behavior and regression risks; seek independent review for changes involving repository boundaries, secrets, deletion, persistence, or concurrency. Avoid repeating unrelated historical context or requesting multiple equivalent reviews without a concrete reason.
+- Use Tokscale measurements as aggregate observations, not per-issue savings claims. Compare like-for-like work before claiming an optimization helped.
