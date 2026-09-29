@@ -37,6 +37,8 @@ grep -Fq '${OBSIDIAN_VAULT_DIR}/10-Projects/Another Project' "$project_root/AGEN
   fail 'global wiki-init-project did not generate a reusable OBSIDIAN_VAULT_DIR wiki root'
 grep -Fq '### Automatic Private Knowledge Capture' "$project_root/AGENTS.md" ||
   fail 'installed wiki-init-project omitted the default capture guidance'
+grep -Fq '### Selective Advisory Reuse' "$project_root/AGENTS.md" ||
+  fail 'installed wiki-init-project omitted advisory reuse guidance'
 if grep -Fq "$repo_dir" "$project_root/AGENTS.md"; then
   fail 'global wiki-init-project leaked the wiki tools repository path into AGENTS.md'
 fi
