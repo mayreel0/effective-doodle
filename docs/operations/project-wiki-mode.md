@@ -79,6 +79,10 @@ Many coding agents treat the current repository and the Obsidian Vault as differ
 
 That is expected. To reduce prompts, configure the agent so the Obsidian Vault is included as a writable workspace root. Do not solve this by writing wiki files into the project repository.
 
+Automatic private knowledge capture uses only the project-local agent-owned directory `${OBSIDIAN_VAULT_DIR}/10-Projects/<Project Name>/_llm/knowledge/`. Use the project name already fixed in its managed `AGENTS.md`, not a newly inferred name. A stable topic name identifies the note; `managed_by: llm-agent` identifies agent ownership, but does not authorize overwriting later human edits. An agent may update its own private note only when its `llm_content_sha256` still matches the existing content; otherwise it reports a conflict. It must not automatically rewrite a human-authored or manually public note. Each note should preserve the decision or lesson, why it matters, and a source or evidence reference. Routine work chronology does not belong in this directory. Private storage does not permit raw secrets; follow the LLM Agent Policy before writing.
+
+If the Vault is missing, unavailable, or unwritable, finish the development work and report the capture limitation. Do not fall back to writing wiki documents inside the source repository. New agent notes stay private by default; publication remains a manual decision.
+
 ## Public Safety
 
 Project wiki documents may be public or private. Public documents must opt in:
