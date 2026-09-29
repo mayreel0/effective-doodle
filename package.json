@@ -6,6 +6,9 @@
   "exports": {
     ".": "./src/index.js"
   },
+  "bin": {
+    "doodle": "./bin/doodle.js"
+  },
   "scripts": {
     "test": "npm run test:unit && npm run test:legacy",
     "test:unit": "node --test tests/*.test.js",
