@@ -201,7 +201,7 @@ $agents_block_begin
 
 ## Project Wiki Mode
 
-When the user says "위키 모드", "Project Wiki Mode", or asks to work on this project with wiki documentation, follow these rules.
+This project captures durable knowledge privately after ordinary development work. An explicit wiki-mode request may also ask for broader wiki maintenance.
 
 ### Work Root
 
@@ -215,7 +215,7 @@ Before writing wiki documents, confirm that this environment variable is set:
 
 \`OBSIDIAN_VAULT_DIR\`
 
-It must point to the local Obsidian Vault root. If it is missing, ask the user for the vault location before writing wiki documents.
+It must point to the local Obsidian Vault root. If it is missing or unwritable, finish the development task without a wiki write and report that capture did not occur only if durable knowledge would have been saved. Ask for the location only when the user specifically requests a wiki document.
 
 ### Wiki Root
 
@@ -223,37 +223,31 @@ Store project wiki documents in the Obsidian Vault:
 
 \`$agents_wiki_dir\`
 
-If the folder does not exist, create it.
+Create the folder only after verifying that the Vault is configured, writable, and outside the source repository.
 
 ### Shared Rules
 
-Follow the shared Project Wiki Mode rules:
+When available, follow the shared Project Wiki Mode rules:
 
 \`$agents_shared_rules\`
 
-### During Work
+### Automatic Private Knowledge Capture
 
-- Solve the user's actual task first.
-- Record important decisions and failures in \`90 Logs/\`.
-- Promote stable setup and operation commands to \`03 Operations Runbook.md\`.
-- Promote failures and fixes to \`04 Troubleshooting.md\`.
-- Promote reusable concepts to \`05 Knowledge Map.md\`.
-- Do not spend excessive time polishing wiki docs during active implementation.
+After an ordinary development task, check whether it produced durable decisions and their rationale, non-obvious constraints, reusable concepts, or failures and fixes. No separate wiki-mode request is required.
 
-### After Work
+- If no reusable knowledge emerged, write no note. Do not turn routine steps, command transcripts, or implementation summaries into notes.
+- Separate what the source or tests confirm from interpretation: distinguish confirmed facts from inferences, and include a source or evidence reference for each conclusion.
+- Write only under \`$agents_wiki_dir/_llm/knowledge/<stable-topic>.md\`; take the project name from this Wiki Root and use a safe, date-free topic slug. New notes are private: do not add \`visibility: public\` or include raw secrets, credentials, personal identifiers, or sensitive paths.
+- Check relevant existing project notes first. Create new notes with YAML frontmatter \`managed_by: llm-agent\` and \`llm_content_sha256\` (SHA-256 of exact note bytes excluding only the digest line). If the topic path already exists, do not overwrite it or create a duplicate; report that capture was skipped. Safe updates and human-note conflict handling come later.
+- Verify the Vault and target directory are outside this repository, reject unsafe path components, and use a private temporary file with a no-overwrite install. If the Vault is unavailable or a write fails, finish the development task, remove only the temporary file, and report that capture did not occur. Never claim a failed write succeeded or fall back to a repository file.
 
-Before calling the task complete, update the project wiki with:
+### Explicit Wiki Maintenance
 
-- What changed
-- How it was verified
-- Important decisions
-- New operations commands
-- Troubleshooting notes
-- Reusable knowledge
+When the user explicitly requests broader wiki maintenance, record important decisions and failures in \`90 Logs/\`, stable commands in \`03 Operations Runbook.md\`, fixes in \`04 Troubleshooting.md\`, and reusable concepts in \`05 Knowledge Map.md\`. Preserve human-authored content and keep wiki work secondary to the development task.
 
 ### Public Documents
 
-Only add this frontmatter to documents that are safe to publish:
+Only when the user explicitly requests publication, add this frontmatter to documents that are safe to publish:
 
 \`\`\`md
 ---

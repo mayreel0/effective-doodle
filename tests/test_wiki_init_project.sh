@@ -54,6 +54,62 @@ if grep -Fq "$vault_root" "$agents_file"; then
 fi
 grep -Fq '${OBSIDIAN_VAULT_DIR}/10-Projects/Shopping App' "$agents_file" ||
   fail 'AGENTS.md does not use OBSIDIAN_VAULT_DIR for the wiki root'
+grep -Fq '### Automatic Private Knowledge Capture' "$agents_file" ||
+  fail 'normal development does not trigger private knowledge capture'
+grep -Fq 'No separate wiki-mode request is required' "$agents_file" ||
+  fail 'automatic capture still requires a wiki-mode request'
+grep -Fq 'durable decisions and their rationale' "$agents_file" ||
+  fail 'capture guidance does not identify durable decisions'
+grep -Fq 'If no reusable knowledge emerged, write no note' "$agents_file" ||
+  fail 'routine work would create unnecessary notes'
+grep -Fq 'distinguish confirmed facts from inferences' "$agents_file" ||
+  fail 'capture guidance does not distinguish evidence from inference'
+grep -Fq 'report that capture did not occur' "$agents_file" ||
+  fail 'capture failure would be reported as success'
+grep -Fq 'managed_by: llm-agent' "$agents_file" ||
+  fail 'new notes lack an agent ownership marker'
+grep -Fq 'llm_content_sha256' "$agents_file" ||
+  fail 'new notes lack the DEV-89 integrity marker'
+grep -Fq 'If the topic path already exists, do not overwrite it' "$agents_file" ||
+  fail 'existing human or agent notes could be overwritten'
+grep -Fq 'only if durable knowledge would have been saved' "$agents_file" ||
+  fail 'missing Vault may be reported for routine tasks'
+if grep -Fq 'When the user says "위키 모드"' "$agents_file"; then
+  fail 'generated AGENTS.md still gates all wiki behavior on an explicit request'
+fi
+
+local_block_project_root="$tmp_root/local-block-project-repo"
+mkdir -p "$local_block_project_root"
+"$repo_dir/scripts/wiki-init-project.sh" --agents-only \
+  --project-root "$local_block_project_root" 'LLM Markdown Wiki System' > /dev/null
+sed -n '/^<!-- project-wiki-mode:start -->$/,/^<!-- project-wiki-mode:end -->$/p' \
+  "$local_block_project_root/AGENTS.md" > "$tmp_root/generated-block.md"
+sed -n '/^<!-- project-wiki-mode:start -->$/,/^<!-- project-wiki-mode:end -->$/p' \
+  "$repo_dir/AGENTS.md" > "$tmp_root/local-block.md"
+test -s "$tmp_root/generated-block.md" && test -s "$tmp_root/local-block.md" ||
+  fail 'managed block extraction was empty'
+cmp -s "$tmp_root/generated-block.md" "$tmp_root/local-block.md" ||
+  fail 'local and generated managed AGENTS blocks diverged'
+
+upgrade_project_root="$tmp_root/upgrade-project-repo"
+mkdir -p "$upgrade_project_root"
+printf '%s\n' '<!-- project-wiki-mode:start -->' '## Project Wiki Mode' \
+  'When the user says "위키 모드", follow these rules.' \
+  '<!-- project-wiki-mode:end -->' '' '## User Rule' \
+  'Preserve this exact user rule.' > "$upgrade_project_root/AGENTS.md"
+"$repo_dir/scripts/wiki-init-project.sh" --agents-only \
+  --project-root "$upgrade_project_root" 'Upgrade App' > /dev/null
+"$repo_dir/scripts/wiki-init-project.sh" --agents-only \
+  --project-root "$upgrade_project_root" 'Upgrade App' > /dev/null
+grep -Fq '### Automatic Private Knowledge Capture' "$upgrade_project_root/AGENTS.md" ||
+  fail 'old managed block was not upgraded'
+if grep -Fq 'When the user says "위키 모드"' "$upgrade_project_root/AGENTS.md"; then
+  fail 'old explicit-trigger guidance remains after upgrade'
+fi
+test "$(grep -Fc '<!-- project-wiki-mode:start -->' "$upgrade_project_root/AGENTS.md")" -eq 1 ||
+  fail 'upgrading duplicated the managed block'
+test "$(grep -Fc 'Preserve this exact user rule.' "$upgrade_project_root/AGENTS.md")" -eq 1 ||
+  fail 'upgrading changed the user-owned rule'
 
 env_project_root="$tmp_root/env-project-repo"
 env_vault_root="$tmp_root/Env Obsidian Vault"
