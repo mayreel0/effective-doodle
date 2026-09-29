@@ -14,6 +14,11 @@ export class ProjectRegistry {
     const projectId = id ?? basename(canonicalPath);
     assertProjectId(projectId);
     this.store.assertExternalToRepository(canonicalPath, projectId);
+    return this.store.withRegistryLock(() => this.#registerLocked(canonicalPath, projectId));
+  }
+
+  #registerLocked(canonicalPath, projectId) {
+    this.store.recoverRegistryMutation();
     const registry = this.store.readRegistry();
 
     if (registry.projects.some((project) => project.id === projectId)) {
@@ -26,10 +31,22 @@ export class ProjectRegistry {
       throw new Error(`Project path is already registered: ${canonicalPath}`);
     }
 
-    const metadata = this.store.writeNewProjectJson(projectId, 'project.json', {
-      id: projectId,
-      path: canonicalPath,
-    });
+    this.store.assertNewProjectStorageAvailable(projectId);
+    this.store.beginRegistryMutation({ operation: 'register', projectId, path: canonicalPath });
+    let metadata;
+    try {
+      metadata = this.store.writeNewProjectJson(projectId, 'project.json', {
+        id: projectId,
+        path: canonicalPath,
+      });
+    } catch (error) {
+      try {
+        this.store.recoverRegistryMutation();
+      } catch (rollbackError) {
+        throw new AggregateError([error, rollbackError], `Failed to register '${projectId}' and recover its metadata.`);
+      }
+      throw error;
+    }
     const entry = { id: projectId, path: canonicalPath };
     registry.projects.push(entry);
     registry.projects.sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
@@ -37,7 +54,7 @@ export class ProjectRegistry {
       this.store.writeRegistry(registry);
     } catch (error) {
       try {
-        this.store.rollbackNewProjectJson(projectId, 'project.json');
+        this.store.recoverRegistryMutation();
       } catch (rollbackError) {
         throw new AggregateError(
           [error, rollbackError],
@@ -46,33 +63,48 @@ export class ProjectRegistry {
       }
       throw error;
     }
+    this.store.finishRegistryMutation();
     return metadata;
   }
 
   list() {
-    return [...this.store.readRegistry().projects];
+    return this.store.withRegistryLock(() => {
+      this.store.recoverRegistryMutation({ cleanupCommitted: false });
+      return [...this.store.readRegistry().projects];
+    });
   }
 
   get(projectId) {
-    const entry = this.store.readRegistry().projects.find((project) => project.id === projectId);
-    if (!entry) throw new Error(`Project '${projectId}' is not registered.`);
-    const metadata = this.store.readProjectJson(projectId, 'project.json');
-    if (!metadata) throw new Error(`Project metadata is missing for '${projectId}'.`);
-    return metadata;
+    return this.store.withRegistryLock(() => {
+      this.store.recoverRegistryMutation({ cleanupCommitted: false });
+      const entry = this.store.readRegistry().projects.find((project) => project.id === projectId);
+      if (!entry) throw new Error(`Project '${projectId}' is not registered.`);
+      const metadata = this.store.readProjectJson(projectId, 'project.json');
+      if (!metadata) throw new Error(`Project metadata is missing for '${projectId}'.`);
+      return metadata;
+    });
   }
 
   unregister(projectId) {
+    return this.store.withRegistryLock(() => this.#unregisterLocked(projectId));
+  }
+
+  #unregisterLocked(projectId) {
+    this.store.recoverRegistryMutation();
     const registry = this.store.readRegistry();
     const remaining = registry.projects.filter((project) => project.id !== projectId);
     if (remaining.length === registry.projects.length) {
       throw new Error(`Project '${projectId}' is not registered.`);
     }
-    const stagedPath = this.store.stageProjectRemoval(projectId);
+    const stagingName = this.store.newStagedRemovalName(projectId);
+    this.store.beginRegistryMutation({ operation: 'unregister', projectId, stagingName });
+    let stagedPath;
     try {
+      stagedPath = this.store.stageProjectRemoval(projectId, stagingName);
       this.store.writeRegistry({ ...registry, projects: remaining });
     } catch (error) {
       try {
-        this.store.restoreStagedProject(projectId, stagedPath);
+        this.store.recoverRegistryMutation();
       } catch (rollbackError) {
         throw new AggregateError(
           [error, rollbackError],
@@ -83,6 +115,7 @@ export class ProjectRegistry {
     }
     try {
       this.store.discardStagedProject(stagedPath);
+      this.store.finishRegistryMutation();
     } catch (error) {
       throw new Error(
         `Project '${projectId}' was unregistered, but staged derived data cleanup failed: ${error.message}`,

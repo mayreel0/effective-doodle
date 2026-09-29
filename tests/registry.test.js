@@ -236,6 +236,22 @@ test('register preserves pre-existing orphan derived data', (t) => {
   assert.deepEqual(registry.list(), []);
 });
 
+test('register preserves matching orphan metadata rather than treating it as its own failed transaction', (t) => {
+  const root = temporaryRoot(t, 'doodle-register-orphan-metadata-');
+  const repo = createGitRepository(root, 'source');
+  const home = join(root, 'home');
+  const orphanDirectory = join(home, 'projects', 'sample');
+  mkdirSync(orphanDirectory, { recursive: true });
+  const metadataPath = join(orphanDirectory, 'project.json');
+  const original = `${JSON.stringify({ schemaVersion: 1, id: 'sample', path: realpathSync(repo) })}\n`;
+  writeFileSync(metadataPath, original);
+  const registry = new ProjectRegistry({ store: new KnowledgeStore({ home }) });
+
+  assert.throws(() => registry.register(repo, { id: 'sample' }), /derived project storage already exists/i);
+  assert.equal(readFileSync(metadataPath, 'utf8'), original);
+  assert.deepEqual(registry.list(), []);
+});
+
 // 한글: registry 저장 실패 시 이번 등록 시도가 만든 metadata만 되돌린다.
 test('register rollback removes only metadata created by the current attempt', (t) => {
   const root = temporaryRoot(t, 'doodle-register-rollback-');
