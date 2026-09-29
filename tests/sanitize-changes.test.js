@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { sanitizeChanges } from '../src/changes/sanitizeChanges.js';
 
+// 한글: 이전 경로가 제외 대상이어도 안전한 새 경로는 추가된 파일로 유지한다.
 test('keeps an allowed destination when its previous path is excluded', () => {
   const changes = {
     base: 'base',
@@ -25,6 +26,7 @@ test('keeps an allowed destination when its previous path is excluded', () => {
   });
 });
 
+// 한글: 안전한 이전 경로는 유지하고 민감한 대상 경로는 제외한다.
 test('preserves safe previous paths and excludes sensitive destinations', () => {
   const changes = {
     commits: [],

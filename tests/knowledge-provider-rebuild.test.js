@@ -7,6 +7,7 @@ import test from 'node:test';
 import { KnowledgeProvider, KnowledgeStore } from '../src/index.js';
 import { createGitRepository } from './helpers/git-fixture.js';
 
+// 한글: rebuild가 중단돼도 기존 스냅샷을 원자적 교체 전까지 유지한다.
 test('rebuild retains existing snapshots until their atomic replacements are written', (t) => {
   const root = mkdtempSync(join(tmpdir(), 'doodle-rebuild-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
