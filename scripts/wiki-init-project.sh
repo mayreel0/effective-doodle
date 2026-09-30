@@ -217,6 +217,8 @@ Before writing wiki documents, confirm that this environment variable is set:
 
 It must point to the local Obsidian Vault root. If it is missing or unwritable, finish the development task without a wiki write and report that capture did not occur only if durable knowledge would have been saved. Ask for the location only when the user specifically requests a wiki document.
 
+Before searching or reading any wiki note or shared rules, verify that the configured \`OBSIDIAN_VAULT_DIR\` resolves to an existing, readable directory outside the source repository. Read project notes only from the configured Wiki Root, and shared rules only from the explicit Shared Rules path below. If the Vault is unset, missing, not a directory, unreadable, or its boundary cannot be verified, skip wiki reads and writes for this task and continue development. Do not search or read a parent directory, sibling directory, previously used Vault, or alternative Vault to compensate for an unavailable Vault or missing notes. Use a different Vault only after the user explicitly configures it.
+
 ### Wiki Root
 
 Store project wiki documents in the Obsidian Vault:
